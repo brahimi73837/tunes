@@ -65,9 +65,12 @@ function clean(list: Station[], max = 60): Track[] {
   for (const s of list) {
     const t = toTrack(s)
     if (!t) continue
-    const key = t.streamUrl.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
+    // Many stations are listed several times (per codec/bitrate); keep the top-voted one.
+    const url = t.streamUrl.toLowerCase()
+    const name = t.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+    if (seen.has(url) || (name && seen.has(name))) continue
+    seen.add(url)
+    if (name) seen.add(name)
     out.push(t)
     if (out.length >= max) break
   }

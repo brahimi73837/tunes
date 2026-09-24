@@ -59,7 +59,7 @@ function b64urlToBytes(s: string): Uint8Array {
 }
 
 async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
-  const res = new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(stream))
+  const res = new Response(new Response(bytes as BodyInit).body!.pipeThrough(stream))
   return new Uint8Array(await res.arrayBuffer())
 }
 
