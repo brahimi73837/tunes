@@ -97,3 +97,9 @@ export const COUNTRIES: [string, string][] = [
   ['JP', 'Japan'], ['IN', 'India'], ['MT', 'Malta'], ['SE', 'Sweden'], ['CH', 'Switzerland'], ['AT', 'Austria'],
   ['BE', 'Belgium'], ['PL', 'Poland'], ['MX', 'Mexico'], ['GR', 'Greece'],
 ]
+
+/** Radio Browser asks clients to report plays so its popularity ranking stays useful. */
+export function countClick(track: Track) {
+  const uuid = track.id.replace(/^radio:/, '')
+  void fetch(`${SERVERS[preferred]}/json/url/${encodeURIComponent(uuid)}`).catch(() => {})
+}

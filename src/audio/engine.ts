@@ -1,4 +1,4 @@
-import { resolveStreamUrl } from '../sources'
+import { SOURCES, resolveStreamUrl } from '../sources'
 import { attachEngine, usePlayback, usePlayer } from '../store/player'
 import { toast } from '../store/ui'
 import type { Track } from '../types'
@@ -68,7 +68,10 @@ export function initEngine() {
     pendingSeek = t.isLive ? 0 : startAt
     audio.src = url
     audio.load()
-    if (autoplay) doPlay()
+    if (autoplay) {
+      doPlay()
+      SOURCES[t.source]?.onPlay?.(t)
+    }
   }
 
   function play() {

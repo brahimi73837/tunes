@@ -140,7 +140,7 @@ const TrackRow = memo(function TrackRow(p: RowProps) {
         p.onDrop()
       }}
       onDoubleClick={p.onPlay}
-      className={`group relative grid cursor-default grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-white/[0.05] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_auto] ${p.active ? 'bg-white/[0.04]' : ''}`}
+      className={`group relative grid cursor-default grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-white/[0.05] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,0.6fr)_auto] ${p.active ? 'bg-white/[0.04]' : ''}`}
     >
       {p.dropIndicator && <div className={`pointer-events-none absolute inset-x-2 h-0.5 rounded bg-accent ${p.dropIndicator === 'above' ? '-top-px' : '-bottom-px'}`} />}
       <div className="relative hidden w-8 items-center justify-center text-sm tabular-nums text-zinc-500 sm:flex">

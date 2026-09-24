@@ -259,7 +259,7 @@ export function ImportView({ payload }: { payload: string }) {
                   <DownloadIcon size={16} /> Save to my library
                 </button>
               )}
-              <button type="button" className="btn-ghost" onClick={() => usePlayer.getState().playTracks(data.tracks)} disabled={!data.tracks.length}>
+              <button type="button" className="btn-ghost" data-testid="play-import" onClick={() => usePlayer.getState().playTracks(data.tracks)} disabled={!data.tracks.length}>
                 Play
               </button>
             </div>

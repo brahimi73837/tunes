@@ -5,7 +5,7 @@ import type { SourceId, Track } from '../types'
 import { Artwork } from './Artwork'
 import { MoreIcon, PauseIcon, PlayIcon } from './Icons'
 import { MenuButton, type MenuItem } from './Menu'
-import { Equalizer } from './TrackList'
+import { Equalizer, LikeButton } from './TrackList'
 
 interface CardProps {
   id: string
@@ -22,6 +22,8 @@ interface CardProps {
   testId?: string
   /** Track id that means "this card is playing" (for radio stations). */
   activeTrackId?: string
+  /** When the card is itself a single playable item (a station), show a like button. */
+  likeTrack?: Track
 }
 
 export function Card(p: CardProps) {
@@ -68,6 +70,9 @@ export function Card(p: CardProps) {
           )}
         </button>
         {p.badge && <div className="absolute left-2 top-2">{p.badge}</div>}
+        {p.likeTrack && (
+          <LikeButton track={p.likeTrack} size={16} className="absolute right-2 top-2 h-8 w-8 bg-black/50 opacity-0 backdrop-blur group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100" />
+        )}
       </div>
       <div className="min-w-0 pr-6">
         <div className={`flex items-center gap-2 truncate text-sm font-semibold ${active ? 'text-accent-strong' : 'text-white'}`}>
@@ -121,6 +126,7 @@ export function StationCard({ station, list, index }: { station: Track; list: Tr
       source="radio"
       activeTrackId={station.id}
       getTracks={() => [...list.slice(index), ...list.slice(0, index)]}
+      likeTrack={station}
       testId="station-card"
     />
   )

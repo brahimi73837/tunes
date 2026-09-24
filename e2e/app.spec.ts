@@ -139,3 +139,55 @@ test('keyboard: ? opens help, / focuses search, space toggles play', async ({ pa
   await page.waitForTimeout(1200)
   expect(await audioTime(page)).toBeCloseTo(paused, 1)
 })
+
+test('unplayable tracks are skipped with a toast', async ({ page, request }) => {
+  const res = await request.get('https://api.audius.co/v1/tracks/trending?app_name=tunes&limit=10')
+  const good = ((await res.json()).data as { id: string; title: string; is_streamable?: boolean; user: { name: string } }[]).find((t) => t.is_streamable !== false)!
+  const payload = {
+    v: 1,
+    n: 'Skip test',
+    t: [
+      ['archive', 'archive:missing/none.mp3', 'Broken track', 'Nobody', '', 0, 'https://archive.org/download/tunes-e2e-this-item-does-not-exist/none.mp3', 0],
+      ['audius', `audius:${good.id}`, good.title, good.user.name, '', 0, `https://api.audius.co/v1/tracks/${good.id}/stream?app_name=tunes`, 0],
+    ],
+  }
+  const enc = 'j' + Buffer.from(JSON.stringify(payload)).toString('base64url')
+  await page.goto(`./#/import/${enc}`)
+  await expect(page.getByTestId('import-tracks').getByRole('listitem')).toHaveCount(2)
+  await page.getByTestId('play-import').click()
+  await expect(page.getByTestId('toasts')).toContainText('Skipped “Broken track”', { timeout: 30_000 })
+  await expectAudioAdvancing(page)
+  await expect(page.getByTestId('now-playing-title')).toHaveText(good.title)
+})
+
+test('queue: play all, remove, reorder, clear', async ({ page }) => {
+  await page.goto('./')
+  await expect(page.getByTestId('trending-list').getByRole('listitem').first()).toBeVisible()
+  await page.getByTestId('home-trending').getByRole('button', { name: 'Play all', exact: true }).click()
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  const items = page.getByTestId('queue-item')
+  const n = await items.count()
+  expect(n).toBeGreaterThan(3)
+  const secondTitle = await items.nth(1).getByRole('button', { name: /^Play / }).getAttribute('aria-label')
+  await items.nth(1).hover()
+  await items.nth(1).getByRole('button', { name: /^Remove .* from queue$/ }).click()
+  await expect(items).toHaveCount(n - 1)
+  await expect(page.getByTestId('queue-panel')).not.toContainText(secondTitle!.replace(/^Play /, ''))
+  // Move the 3rd item up via its menu.
+  const third = await items.nth(2).getByRole('button', { name: /^Play / }).getAttribute('aria-label')
+  await items.nth(2).hover()
+  await items.nth(2).getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menuitem', { name: 'Move up' }).click()
+  await expect(items.nth(1).getByRole('button', { name: /^Play / })).toHaveAttribute('aria-label', third!)
+  await page.getByTestId('clear-queue').click()
+  await expect(items).toHaveCount(1)
+})
+
+test('focus mode queues live lofi/ambient radio and plays', async ({ page }) => {
+  await page.goto('./')
+  await page.getByTestId('focus-tile').getByRole('button', { name: 'Focus mode' }).first().click()
+  await expectAudioAdvancing(page, 2, 60_000)
+  await expect(page.getByTestId('live-indicator')).toBeVisible()
+  await page.getByRole('button', { name: 'Queue', exact: true }).click()
+  expect(await page.getByTestId('queue-item').count()).toBeGreaterThan(3)
+})
