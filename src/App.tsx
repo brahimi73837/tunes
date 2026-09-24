@@ -1,122 +1,97 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useRef } from 'react'
+import { useRoute } from './lib/router'
+import { useShortcuts } from './lib/shortcuts'
+import { useUI } from './store/ui'
+import { HelpOverlay, MobileNav, Sidebar, Toasts, TopBar } from './components/Chrome'
+import { DialogHost } from './components/Dialog'
+import { MiniPlayer, PlayerBar } from './components/PlayerBar'
+import { QueuePanel } from './components/QueuePanel'
+import { ArchiveAlbumView, AudiusPlaylistView, GenreView } from './views/Collections'
+import { Home } from './views/Home'
+import { ImportView, LibraryView, PlaylistView } from './views/Library'
+import { RadioView } from './views/Radio'
+import { SearchView } from './views/Search'
+import { EmptyState } from './components/Cards'
+import { Page } from './views/common'
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+function Routes() {
+  const { path } = useRoute()
+  const [a, b] = path
+  switch (a) {
+    case undefined:
+      return <Home />
+    case 'search':
+      return <SearchView />
+    case 'radio':
+      return <RadioView />
+    case 'library':
+      return <LibraryView />
+    case 'playlist':
+      return <PlaylistView key={b} id={b} />
+    case 'album':
+      return <ArchiveAlbumView key={b} id={b} />
+    case 'audius-playlist':
+      return <AudiusPlaylistView key={b} id={b} />
+    case 'genre':
+      return <GenreView key={b} genre={b} />
+    case 'import':
+      return <ImportView payload={path.slice(1).join('/')} />
+    default:
+      return (
+        <Page>
+          <EmptyState title="Page not found" body="That link doesn’t point anywhere in Tunes." action={<a className="btn-primary" href="#/">Go home</a>} />
+        </Page>
+      )
+  }
 }
 
-export default App
+export default function App() {
+  useShortcuts()
+  const mini = useUI((s) => s.miniMode)
+  const queueOpen = useUI((s) => s.queueOpen)
+  const route = useRoute()
+  const mainRef = useRef<HTMLElement>(null)
+  const routeKey = route.path.join('/')
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 })
+  }, [routeKey])
+
+  if (mini) {
+    return (
+      <>
+        <MiniPlayer />
+        <Toasts />
+        <HelpOverlay />
+        <DialogHost />
+      </>
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-64 shrink-0 border-r border-line md:block xl:w-72">
+          <Sidebar />
+        </aside>
+        <main ref={mainRef} id="main" className="relative min-w-0 flex-1 overflow-y-auto scroll-thin">
+          <TopBar />
+          <Routes />
+        </main>
+        {queueOpen && (
+          <>
+            <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => useUI.getState().setQueueOpen(false)} />
+            <div className="fixed inset-y-0 right-0 z-40 w-[min(22rem,100%)] lg:static lg:z-auto lg:w-80 lg:shrink-0 xl:w-96">
+              <QueuePanel />
+            </div>
+          </>
+        )}
+      </div>
+      <PlayerBar />
+      <MobileNav />
+      <Toasts />
+      <HelpOverlay />
+      <DialogHost />
+    </div>
+  )
+}

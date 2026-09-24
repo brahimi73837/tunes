@@ -1,7 +1,14 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
-// https://vite.dev/config/
+// GitHub Pages serves the app from /<repo>/. Override with BASE=/ for other hosts.
 export default defineConfig({
-  plugins: [react()],
+  base: process.env.BASE ?? '/tunes/',
+  plugins: [react(), tailwindcss()],
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts'],
+  },
 })
