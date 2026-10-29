@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 test-results/
 playwright-report/
+
+# Throwaway experiments
+.probe/
+
+# Wrangler
+.wrangler/

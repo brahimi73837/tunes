@@ -1,7 +1,8 @@
-import { useAsync, useDebounced } from '../lib/hooks'
+import { useAsync, useDebounced, useLatest } from '../lib/hooks'
 import { href, navigate, useRoute } from '../lib/router'
 import * as archive from '../sources/archive'
 import * as audius from '../sources/audius'
+import * as catalog from '../sources/catalog'
 import * as radio from '../sources/radio'
 import { Card, CardGrid, CardGridSkeleton, EmptyState, ErrorState, StationCard } from '../components/Cards'
 import { SearchIcon } from '../components/Icons'
@@ -12,6 +13,8 @@ import { GenreTiles, Page, Section } from './common'
 
 const TABS = [
   { id: 'all', label: 'All' },
+  { id: 'songs', label: 'Songs' },
+  { id: 'videos', label: 'Videos' },
   { id: 'audius', label: 'Audius' },
   { id: 'archive', label: 'Archive' },
   { id: 'radio', label: 'Radio' },
@@ -22,10 +25,15 @@ export function SearchView() {
   const route = useRoute()
   const rawQ = (route.query.get('q') ?? '').trim()
   const tab = (TABS.some((t) => t.id === route.query.get('tab')) ? route.query.get('tab') : 'all') as Tab
-  const q = useDebounced(rawQ, 350)
+  const q = useDebounced(rawQ, 250)
   const pending = q !== rawQ
   const want = (t: Tab) => (q && (tab === 'all' || tab === t) ? q : null)
 
+  const songs = useAsync(want('songs') && `s:songs:${q}`, (s) => catalog.searchSongs(q, s))
+  const videos = useAsync(want('videos') && `s:videos:${q}`, (s) => catalog.searchVideos(q, s))
+  // Keep showing the previous results while the next ones load: typing feels instant.
+  const shownSongs = useLatest(songs.data, rawQ !== '')
+  const shownVideos = useLatest(videos.data, rawQ !== '')
   const tracks = useAsync(want('audius') && `s:audius:${q}`, (s) => audius.searchTracks(q, s))
   const lists = useAsync(want('audius') && `s:audius-pl:${q}`, (s) => audius.searchPlaylists(q, s))
   const albums = useAsync(want('archive') && `s:archive:${q}`, (s) => archive.searchAlbums(q, s))
@@ -37,7 +45,7 @@ export function SearchView() {
     return (
       <Page title="Search">
         <p className="-mt-3 mb-6 text-sm text-zinc-400">
-          Independent artists on Audius, free albums and live recordings on the Internet Archive, and live radio from around the world. Press <kbd className="rounded border border-line px-1.5 text-xs">/</kbd> anywhere to search.
+          Any song or video on YouTube — popular hits play ad-free in full quality when JioSaavn has them — plus independent artists on Audius, free recordings on the Internet Archive, and live radio. Press <kbd className="rounded border border-line px-1.5 text-xs">/</kbd> anywhere to search.
         </p>
         <Section title="Browse all">
           <GenreTiles />
@@ -46,10 +54,12 @@ export function SearchView() {
     )
   }
 
-  const loadingAny = pending || tracks.loading || lists.loading || albums.loading || stations.loading
+  const loadingAny = pending || songs.loading || videos.loading || tracks.loading || lists.loading || albums.loading || stations.loading
   const nothing =
-    !loadingAny && !tracks.error && !albums.error && !stations.error &&
-    (tab === 'all' ? !tracks.data?.length && !albums.data?.length && !stations.data?.length && !lists.data?.length
+    !loadingAny && !songs.error && !videos.error && !tracks.error && !albums.error && !stations.error &&
+    (tab === 'all' ? !songs.data?.length && !tracks.data?.length && !albums.data?.length && !stations.data?.length && !lists.data?.length
+      : tab === 'songs' ? !songs.data?.length
+      : tab === 'videos' ? !videos.data?.length
       : tab === 'audius' ? !tracks.data?.length && !lists.data?.length
       : tab === 'archive' ? !albums.data?.length
       : !stations.data?.length)
@@ -69,11 +79,38 @@ export function SearchView() {
         <EmptyState icon={<SearchIcon size={32} />} title={`No results for “${q}”`} body="Check the spelling, try fewer words, or switch source tabs." />
       )}
 
-      {(tab === 'all' || tab === 'audius') && (
-        <Section title={tab === 'all' ? 'Tracks · Audius' : 'Tracks'} testId="results-audius" action={tab === 'all' && (tracks.data?.length ?? 0) > 6 ? <TabLink tab="audius" q={rawQ} /> : undefined}>
-          {tracks.error ? <ErrorState message={tracks.error} onRetry={tracks.retry} /> : tracks.loading || pending ? <TrackListSkeleton rows={tab === 'all' ? 6 : 10} /> : tracks.data?.length ? <TrackList tracks={tab === 'all' ? tracks.data.slice(0, 6) : tracks.data} showSource={false} testId="audius-tracks" /> : <Muted>No Audius tracks.</Muted>}
+      {(tab === 'all' || tab === 'songs') && (
+        <Section title="Songs" testId="results-songs" action={tab === 'all' && (shownSongs?.length ?? 0) > 8 ? <TabLink tab="songs" q={rawQ} /> : undefined}>
+          {songs.error ? (
+            <ErrorState message={songs.error} onRetry={songs.retry} />
+          ) : shownSongs?.length ? (
+            <div className={songs.loading || pending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+              <TrackList tracks={tab === 'all' ? shownSongs.slice(0, 8) : shownSongs} testId="song-tracks" />
+            </div>
+          ) : songs.loading || pending ? (
+            <TrackListSkeleton rows={tab === 'all' ? 8 : 12} />
+          ) : (
+            <Muted>No songs found.</Muted>
+          )}
         </Section>
       )}
+
+      {(tab === 'all' || tab === 'videos') && (
+        <Section title="Videos · YouTube" testId="results-videos" action={tab === 'all' && (shownVideos?.length ?? 0) > 5 ? <TabLink tab="videos" q={rawQ} /> : undefined}>
+          {videos.error ? (
+            <ErrorState message={videos.error} onRetry={videos.retry} />
+          ) : shownVideos?.length ? (
+            <div className={videos.loading || pending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+              <TrackList tracks={tab === 'all' ? shownVideos.slice(0, 5) : shownVideos} showSource={false} testId="video-tracks" />
+            </div>
+          ) : videos.loading || pending ? (
+            <TrackListSkeleton rows={5} />
+          ) : (
+            <Muted>No videos found.</Muted>
+          )}
+        </Section>
+      )}
+
 
       {(tab === 'all' || tab === 'radio') && (
         <Section title={tab === 'all' ? 'Stations · Radio' : 'Stations'} testId="results-radio" action={tab === 'all' && (stations.data?.length ?? 0) > 5 ? <TabLink tab="radio" q={rawQ} /> : undefined}>
@@ -86,6 +123,12 @@ export function SearchView() {
           ) : (
             <Muted>No https stations matched. Try the Radio tab’s genre chips.</Muted>
           )}
+        </Section>
+      )}
+
+      {(tab === 'all' || tab === 'audius') && (
+        <Section title={tab === 'all' ? 'Independent artists · Audius' : 'Tracks'} testId="results-audius" action={tab === 'all' && (tracks.data?.length ?? 0) > 4 ? <TabLink tab="audius" q={rawQ} /> : undefined}>
+          {tracks.error ? <ErrorState message={tracks.error} onRetry={tracks.retry} /> : tracks.loading || pending ? <TrackListSkeleton rows={tab === 'all' ? 4 : 10} /> : tracks.data?.length ? <TrackList tracks={tab === 'all' ? tracks.data.slice(0, 4) : tracks.data} showSource={false} testId="audius-tracks" /> : <Muted>No Audius tracks.</Muted>}
         </Section>
       )}
 

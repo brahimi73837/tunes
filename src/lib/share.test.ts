@@ -40,6 +40,21 @@ describe('share link encoding', () => {
     expect(dec.tracks.map((t) => t.id)).not.toContain('audius:http')
   })
 
+  it('keeps YouTube ids for YouTube tracks and JioSaavn fallbacks', async () => {
+    const yt: Track = { id: 'youtube:J7p4bzqLvCw', source: 'youtube', title: 'Blinding Lights', artist: 'The Weeknd', duration: 202, streamUrl: 'https://www.youtube.com/watch?v=J7p4bzqLvCw', isLive: false, youtubeId: 'J7p4bzqLvCw' }
+    const sv: Track = { id: 'saavn:abc', source: 'saavn', title: 'Shape of You', artist: 'Ed Sheeran', duration: 233, streamUrl: 'https://aac.saavncdn.com/126/x_320.mp4', isLive: false, youtubeId: 'JGwWNGJdvx8' }
+    const dec = await decodePlaylist(await encodePlaylist({ name: 'Mixed', tracks: [yt, sv, tracks[0]] }))
+    expect(dec.tracks[0]).toEqual(yt)
+    expect(dec.tracks[1]).toEqual(sv)
+    expect(dec.tracks[2].youtubeId).toBeUndefined()
+  })
+
+  it('drops YouTube tracks without a valid video id', async () => {
+    const payload = { v: 1, n: 'x', t: [['youtube', 'youtube:bad', 'T', 'A', '', 1, 'https://www.youtube.com/watch?v=bad', 0, '', '', 'not-an-id!']] }
+    const dec = await decodePlaylist('j' + btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''))
+    expect(dec.tracks).toHaveLength(0)
+  })
+
   it('rejects garbage', async () => {
     await expect(decodePlaylist('xnope')).rejects.toThrow()
     await expect(decodePlaylist('j' + btoa('{"v":2}'))).rejects.toThrow()

@@ -65,3 +65,4 @@ export const ArrowDownIcon = make(<><path d="M12 5v14" /><path d="m19 12-7 7-7-7
 export const WaveIcon = make(<><path d="M2 12h2" /><path d="M6 8v8" /><path d="M10 5v14" /><path d="M14 9v6" /><path d="M18 7v10" /><path d="M22 12h-2" /></>)
 export const CheckIcon = make(<path d="M20 6 9 17l-5-5" />)
 export const ListPlusIcon = make(<><path d="M3 6h12" /><path d="M3 12h12" /><path d="M3 18h8" /><path d="M18 13v8" /><path d="M14 17h8" /></>)
+export const VideoIcon = make(<><rect x="2.5" y="6" width="13" height="12" rx="2" /><path d="m15.5 10.5 5-3v9l-5-3" /></>)

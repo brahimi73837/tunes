@@ -28,3 +28,22 @@ All probes done with `curl` sending `Origin: https://x.github.io` to check CORS.
 
 ## Visualizer decision
 A real Web Audio analyser needs `crossOrigin="anonymous"` on the audio element; radio streams mostly lack CORS on the stream itself, and a CORS-tainted `MediaElementSource` outputs silence. So the visualizer is decorative (animated from play state), and the audio element never gets `crossOrigin`.
+
+# Full-catalog probe notes (2026-10-29, from Malta)
+
+## Public YouTube frontends — not usable
+- `api.invidious.io/instances.json?sort_by=health`: the top instance reports `"api": false, "cors": false`. Piped's instance list did not answer.
+- YouTube `youtubei/v1/player` from a server returns `ERROR "This video is unavailable"` (bot detection), so server-side stream extraction is out. Playback therefore uses the IFrame player in the user's browser.
+
+## YouTube Music InnerTube — works from Cloudflare, no key
+- `POST https://music.youtube.com/youtubei/v1/search` with `client: WEB_REMIX` and `params: EgWKAQIIAWoKEAkQBRAKEAMQBA==` (songs filter) → `musicResponsiveListItemRenderer` rows: `flexColumns[0]` = title, `flexColumns[1]` = "Artist • Album • 3:22" (artist/album runs carry `MUSIC_PAGE_TYPE_ARTIST/ALBUM`), `playlistItemData.videoId`.
+- `POST https://www.youtube.com/youtubei/v1/search` with `client: WEB`, `params: EgIQAQ==` → `videoRenderer` (videos only).
+- `music/get_search_suggestions` → `searchSuggestionRenderer`.
+- Charts: `browse FEmusic_charts` with `formData.selectedValues: ["ZZ"]` → "Daily Top Music Videos - Global" playlist (`VLPL4fGSI1pDJn6t3TXLGiiJdD-sZbrG3tG0`); its rows keep the duration in `fixedColumns`.
+- IFrame player: audio-track uploads (`MUSIC_VIDEO_TYPE_ATV`) and official videos tested (`J7p4bzqLvCw`, `-JRUbrVCHZM`, `4NRXx6U8ABQ`, `JGwWNGJdvx8`) all reach PLAYING in an off-screen 200×200 player in headless Chrome.
+
+## JioSaavn — works, region-sensitive
+- `GET https://www.jiosaavn.com/api.php?__call=search.getResults&api_version=4&ctx=web6dot0&_format=json&n=20&p=1&q=…` → 200, **no CORS header**.
+- From a non-Indian IP, originals are hidden (only covers come back, `rights.code: 1 "Unavailable"`). The same request with `X-Forwarded-For: <Indian IP>` returns the originals (`rights.code: 0`). Cookies alone don't do it. Cloudflare Workers pass the header through.
+- `more_info.encrypted_media_url` = base64 DES-ECB (key `38346591`) of `https://aac.saavncdn.com/…_96.mp4`; `_320.mp4` / `_160.mp4` exist alongside.
+- `song.generateAuthToken` returns a signed `web.saavncdn.com` URL that is **403 from Malta**; the unsigned `aac.saavncdn.com` path is 200 `audio/mp4`, `Access-Control-Allow-Origin: *`, full length (Shape of You: 233.7 s, 9.4 MB at 320 kbps).

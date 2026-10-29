@@ -1,4 +1,5 @@
 import { navigate } from '../lib/router'
+import { SOURCES } from '../sources'
 import { LIKED_ID, useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
 import { toast } from '../store/ui'
@@ -45,7 +46,7 @@ export function trackMenuItems(track: Track, extra: MenuItem[] = []): MenuItem[]
       icon: liked ? <HeartFillIcon size={16} className="text-accent-2" /> : <HeartIcon size={16} />,
       onClick: () => useLibrary.getState().toggleLike(track),
     },
-    ...(track.pageUrl ? [{ label: `Open on ${track.source === 'audius' ? 'Audius' : track.source === 'archive' ? 'Archive.org' : 'station site'}`, icon: <ExternalIcon size={16} />, onClick: () => window.open(track.pageUrl, '_blank', 'noopener') }] : []),
+    ...(track.pageUrl ? [{ label: `Open on ${SOURCES[track.source]?.pageLabel ?? 'source site'}`, icon: <ExternalIcon size={16} />, onClick: () => window.open(track.pageUrl, '_blank', 'noopener') }] : []),
     ...(extra.length ? [{ label: '', separator: true }, ...extra] : []),
   ]
 }
