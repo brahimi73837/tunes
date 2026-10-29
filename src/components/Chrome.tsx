@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAsync, useDebounced } from '../lib/hooks'
+import { useAsync, useDebounced, useLatest } from '../lib/hooks'
 import { href, navigate, useRoute } from '../lib/router'
 import { suggest } from '../sources/catalog'
 import { LIKED_ID, useLibrary } from '../store/library'
@@ -156,7 +156,14 @@ export function TopBar() {
   useEffect(() => () => clearTimeout(idleTimer.current), [])
   const typed = useDebounced(value.trim(), 150)
   const sugg = useAsync(focused && typed.length >= 2 ? `suggest:${typed.toLowerCase()}` : null, (s) => suggest(typed, s))
-  const options = (sugg.data ?? []).filter((s) => s.toLowerCase() !== value.trim().toLowerCase())
+  // Keep the previous list up while the next one loads, instead of flickering closed.
+  const latest = useLatest(sugg.data, focused && value.trim().length >= 2)
+  const options = (latest ?? []).filter((s) => s.toLowerCase() !== value.trim().toLowerCase())
+  // Count the idle time from when a list shows up too, so slow suggestions still get their moment.
+  useEffect(() => {
+    if (latest?.length) closeWhenIdle()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest])
   const open = focused && !dismissed && value.trim().length >= 2 && options.length > 0
 
   // Keep the box in sync when navigating (back/forward, genre links).

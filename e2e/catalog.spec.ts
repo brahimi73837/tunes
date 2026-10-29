@@ -107,11 +107,12 @@ test('search suggestions: keyboard pick replaces the query', async ({ page }) =>
   await page.goto('./')
   const input = page.getByTestId('search-input')
   await input.click()
-  await input.pressSequentially('blinding li', { delay: 40 })
+  await input.fill('blinding li')
   const list = page.getByTestId('search-suggestions')
   await expect(list.getByRole('option').first()).toBeVisible({ timeout: 15_000 })
-  const firstText = (await list.getByRole('option').first().textContent())!.trim()
+  // Arrow keys keep the list open (it otherwise closes itself once typing pauses).
   await input.press('ArrowDown')
+  const firstText = (await list.getByRole('option', { selected: true }).textContent())!.trim()
   await input.press('Enter')
   await expect(input).toHaveValue(firstText)
   await expect(page).toHaveURL(new RegExp(`q=${encodeURIComponent(firstText).replace(/%20/g, '(%20|\\+)')}`))
@@ -119,6 +120,7 @@ test('search suggestions: keyboard pick replaces the query', async ({ page }) =>
   // Escape with the list open closes it but keeps the query.
   await input.press('Backspace')
   await expect(list.getByRole('option').first()).toBeVisible({ timeout: 15_000 })
+  await input.press('ArrowDown')
   await input.press('Escape')
   await expect(list).toHaveCount(0)
   await expect(input).toHaveValue(firstText.slice(0, -1))
