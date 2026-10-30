@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAsync, useDebounced, useLatest } from '../lib/hooks'
 import { href, navigate, useRoute } from '../lib/router'
+import { suggest } from '../sources/catalog'
 import { LIKED_ID, useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
 import { useUI } from '../store/ui'
@@ -133,12 +135,36 @@ export function MobileNav() {
   )
 }
 
+const SUGGEST_IDLE_MS = 1800
+
 export function TopBar() {
   const route = useRoute()
   const q = route.path[0] === 'search' ? route.query.get('q') ?? '' : ''
   const [value, setValue] = useState(q)
   const inputRef = useRef<HTMLInputElement>(null)
   const focusMode = useFocusModeState()
+  const [focused, setFocused] = useState(false)
+  const [active, setActive] = useState(-1)
+  const [dismissed, setDismissed] = useState(false)
+  const idleTimer = useRef(0)
+  // Results update live underneath, so the list gets out of the way (it covers the tabs) once typing pauses.
+  const closeWhenIdle = () => {
+    clearTimeout(idleTimer.current)
+    idleTimer.current = window.setTimeout(() => setDismissed(true), SUGGEST_IDLE_MS)
+  }
+  const keepOpen = () => clearTimeout(idleTimer.current)
+  useEffect(() => () => clearTimeout(idleTimer.current), [])
+  const typed = useDebounced(value.trim(), 150)
+  const sugg = useAsync(focused && typed.length >= 2 ? `suggest:${typed.toLowerCase()}` : null, (s) => suggest(typed, s))
+  // Keep the previous list up while the next one loads, instead of flickering closed.
+  const latest = useLatest(sugg.data, focused && value.trim().length >= 2)
+  const options = (latest ?? []).filter((s) => s.toLowerCase() !== value.trim().toLowerCase())
+  // Count the idle time from when a list shows up too, so slow suggestions still get their moment.
+  useEffect(() => {
+    if (latest?.length) closeWhenIdle()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest])
+  const open = focused && !dismissed && value.trim().length >= 2 && options.length > 0
 
   // Keep the box in sync when navigating (back/forward, genre links).
   useEffect(() => {
@@ -147,6 +173,9 @@ export function TopBar() {
 
   const onChange = (v: string) => {
     setValue(v)
+    setActive(-1)
+    setDismissed(false)
+    closeWhenIdle()
     const tab = route.path[0] === 'search' ? route.query.get('tab') ?? 'all' : 'all'
     const target = `/search?q=${encodeURIComponent(v)}${tab !== 'all' ? `&tab=${tab}` : ''}`
     navigate(target, { replace: route.path[0] === 'search' })
@@ -178,7 +207,34 @@ export function TopBar() {
           placeholder="Search artists, tracks, albums, stations…"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onFocus={() => route.path[0] !== 'search' && value === '' && navigate('/search')}
+          onFocus={() => {
+            setFocused(true)
+            if (route.path[0] !== 'search' && value === '') navigate('/search')
+          }}
+          onBlur={() => setFocused(false)}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="search-suggestions"
+          aria-autocomplete="list"
+          aria-activedescendant={open && active >= 0 ? `suggestion-${active}` : undefined}
+          onKeyDown={(e) => {
+            if (!open) return
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              keepOpen()
+              const n = options.length
+              setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % n : (i - 1 + n) % n))
+            } else if (e.key === 'Enter' && active >= 0) {
+              e.preventDefault()
+              onChange(options[active])
+              setDismissed(true)
+            } else if (e.key === 'Escape') {
+              // Just close the list: don't blur, and don't let type=search clear the query.
+              e.preventDefault()
+              e.stopPropagation()
+              setDismissed(true)
+            }
+          }}
           className="h-10 w-full rounded-full border border-line bg-white/[0.06] pl-10 pr-16 text-sm text-white placeholder:text-zinc-500 outline-none transition focus:border-accent/50 focus:bg-white/[0.09] [&::-webkit-search-cancel-button]:hidden"
         />
         {value ? (
@@ -187,6 +243,35 @@ export function TopBar() {
           </button>
         ) : (
           <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-line px-1.5 text-[11px] text-zinc-500 sm:block">/</kbd>
+        )}
+        {open && (
+          <ul
+            id="search-suggestions"
+            role="listbox"
+            aria-label="Suggestions"
+            data-testid="search-suggestions"
+            onMouseEnter={keepOpen}
+            onMouseLeave={closeWhenIdle}
+            className="fade-in absolute inset-x-0 top-12 z-30 overflow-hidden rounded-2xl border border-line bg-elevated py-1.5 shadow-2xl shadow-black/50">
+            {options.map((s, i) => (
+              <li
+                key={s}
+                id={`suggestion-${i}`}
+                role="option"
+                aria-selected={i === active}
+                className={`flex cursor-pointer items-center gap-3 px-4 py-2 text-sm ${i === active ? 'bg-white/10 text-white' : 'text-zinc-300 hover:bg-white/[0.06]'}`}
+                // mousedown, not click: fires before the input's blur closes the list.
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onChange(s)
+                  setDismissed(true)
+                }}
+              >
+                <SearchIcon size={15} className="shrink-0 text-zinc-500" />
+                <span className="truncate">{s}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </form>
       <div className="ml-auto flex items-center gap-2">

@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { showVideo } from '../audio/engine'
 import { usePlayback, usePlayer } from '../store/player'
 import { useUI } from '../store/ui'
 import { Artwork } from './Artwork'
 import { PlayButton, SeekBar, SleepTimerButton, TransportControls, Visualizer, VolumeControl } from './Controls'
-import { CloseIcon, MaximizeIcon, MinimizeIcon, MoreIcon, NextIcon, QueueIcon, WaveIcon } from './Icons'
+import { CloseIcon, MaximizeIcon, MinimizeIcon, MoreIcon, NextIcon, QueueIcon, VideoIcon, WaveIcon } from './Icons'
 import { MenuButton } from './Menu'
 import { LikeButton, LiveBadge, SourceBadge } from './TrackList'
 import { trackMenuItems } from './trackActions'
@@ -38,6 +39,27 @@ function NowPlayingInfo({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+/** Only shown while the YouTube player is the one making sound. */
+function VideoButton({ className = '' }: { className?: string }) {
+  const backend = usePlayback((s) => s.backend)
+  const visible = usePlayback((s) => s.videoVisible)
+  const hasTrack = usePlayer((s) => s.index >= 0)
+  if (backend !== 'youtube' || !hasTrack) return null
+  return (
+    <button
+      type="button"
+      aria-label={visible ? 'Hide video' : 'Show video'}
+      aria-pressed={visible}
+      title={visible ? 'Hide video' : 'Show video'}
+      data-testid="video-toggle"
+      className={`icon-btn h-8 w-8 ${visible ? 'text-accent-strong hover:text-accent-strong' : ''} ${className}`}
+      onClick={() => showVideo(!visible)}
+    >
+      <VideoIcon size={18} />
+    </button>
+  )
+}
+
 export function PlayerBar() {
   const [expanded, setExpanded] = useState(false)
   const queueOpen = useUI((s) => s.queueOpen)
@@ -69,6 +91,7 @@ export function PlayerBar() {
           <div className="flex items-center justify-end gap-1">
             <div className="flex items-center gap-1 sm:hidden">
               {current && <LikeButton track={current} className="h-9 w-9" />}
+              <VideoButton className="h-9 w-9" />
               <PlayButton />
               <button type="button" aria-label="Next" className="icon-btn h-9 w-9 text-zinc-200" onClick={() => usePlayer.getState().next()} disabled={!hasTrack}>
                 <NextIcon size={18} />
@@ -77,6 +100,7 @@ export function PlayerBar() {
             <div className="hidden items-center gap-1 sm:flex">
               {visualizerOn && hasTrack && <Visualizer bars={10} className="mr-1 hidden h-6 w-14 xl:block" />}
               <SleepTimerButton className="hidden lg:inline-flex" />
+              <VideoButton />
               <button
                 type="button"
                 aria-label="Queue"

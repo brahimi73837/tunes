@@ -1,15 +1,31 @@
 import { SOURCES, resolveStreamUrl } from '../sources'
+import { findAlternative } from '../sources/catalog'
 import { attachEngine, usePlayback, usePlayer } from '../store/player'
 import { toast } from '../store/ui'
 import type { Track } from '../types'
+import { YouTubeMedia } from './youtube'
 
 const STALL_MS = 10_000
 const RESUME_KEY = 'tunes.resume'
 const MAX_CONSECUTIVE_FAILURES = 5
 
+/** What the engine needs from a player; HTMLAudioElement and YouTubeMedia both fit. */
+type Media = Pick<HTMLMediaElement, 'currentTime' | 'readyState' | 'ended' | 'paused' | 'volume' | 'muted' | 'playbackRate' | 'src' | 'play' | 'pause' | 'load' | 'getAttribute' | 'removeAttribute'> &
+  EventTarget & { readonly duration: number; readonly error: { code: number; message?: string } | null }
+
+/** The YouTube player can stand in for a JioSaavn track that won't load. */
+const asYouTube = (t: Track): Track => ({ ...t, source: 'youtube', streamUrl: `https://www.youtube.com/watch?v=${t.youtubeId}` })
+
+let ytPlayer: YouTubeMedia | null = null
+/** Shows or hides the YouTube player (it plays hidden by default). */
+export function showVideo(show: boolean) {
+  ytPlayer?.reveal(show)
+}
+
 /**
- * Owns the one and only <audio> element. Never sets `crossOrigin`: most radio streams
- * and some content nodes don't send CORS headers, and a CORS-mode request would fail.
+ * Owns the one <audio> element and the hidden YouTube player, and switches between them per
+ * track. Never sets `crossOrigin` on the audio element: most radio streams and some content
+ * nodes don't send CORS headers, and a CORS-mode request would fail.
  */
 export function initEngine() {
   if (document.getElementById('tunes-audio')) return
@@ -17,6 +33,10 @@ export function initEngine() {
   audio.id = 'tunes-audio'
   audio.preload = 'auto'
   document.body.appendChild(audio)
+  const yt = new YouTubeMedia()
+  ytPlayer = yt
+  let media: Media = audio
+  yt.addEventListener('visibility', () => usePlayback.setState({ videoVisible: yt.visible }))
 
   let token = 0
   let track: Track | null = null
@@ -29,19 +49,32 @@ export function initEngine() {
   let failedToken = -1
   let pausedAt = 0
   let lastPositionSync = 0
+  /** The load token on which we already tried another copy of the track. */
+  let fallbackToken = -1
 
   const markProgress = () => (lastProgressAt = Date.now())
   const player = () => usePlayer.getState()
 
   function applyVolume(volume: number, muted: boolean) {
     // Squared curve feels closer to perceived loudness than linear.
-    audio.volume = Math.min(1, Math.max(0, volume * volume))
-    audio.muted = muted
+    for (const m of [audio, yt]) {
+      m.volume = Math.min(1, Math.max(0, volume * volume))
+      m.muted = muted
+    }
+  }
+
+  function use(next: Media) {
+    if (next === media) return
+    media.pause()
+    media.removeAttribute('src')
+    if (media === audio) audio.load()
+    media = next
+    usePlayback.setState({ backend: next === yt ? 'youtube' : 'audio' })
   }
 
   function doPlay() {
     markProgress()
-    const p = audio.play()
+    const p = media.play()
     p?.catch((err: DOMException) => {
       if (err?.name === 'NotAllowedError') {
         usePlayer.setState({ isPlaying: false })
@@ -52,10 +85,11 @@ export function initEngine() {
     })
   }
 
-  async function load(t: Track, autoplay: boolean, startAt = 0) {
+  /** `queueId` stays the id of the queued track when we play a stand-in copy of it. */
+  async function load(t: Track, autoplay: boolean, startAt = 0, queueId = t.id) {
     const my = ++token
     track = t
-    loadedId = t.id
+    loadedId = queueId
     failedToken = -1
     markProgress()
     lastTime = -1
@@ -66,18 +100,39 @@ export function initEngine() {
     if (my !== token) return
     url = resolved
     pendingSeek = t.isLive ? 0 : startAt
-    audio.src = url
-    audio.load()
+    use(t.source === 'youtube' ? yt : audio)
+    media.src = url
+    media.load()
     if (autoplay) {
       doPlay()
       SOURCES[t.source]?.onPlay?.(t)
     }
   }
 
+  /**
+   * Before giving up on a track, try another copy once: the YouTube upload for a JioSaavn
+   * file, or (via the API) a JioSaavn file / a different YouTube upload for a YouTube video.
+   */
+  async function tryFallback(): Promise<boolean> {
+    const t = track
+    if (!t || t.isLive || fallbackToken === token || (t.source !== 'saavn' && t.source !== 'youtube')) return false
+    fallbackToken = token
+    const my = token
+    const at = media.currentTime > 1 ? media.currentTime : 0
+    const queueId = loadedId ?? t.id
+    let alt: Track | null = null
+    if (t.source === 'saavn' && t.youtubeId) alt = asYouTube(t)
+    else alt = await findAlternative(t, t.source === 'saavn' ? 'saavn' : undefined).catch(() => null)
+    if (!alt || my !== token || !player().isPlaying) return false
+    await load({ ...alt, title: t.title, artist: t.artist, artwork: t.artwork ?? alt.artwork }, true, at, queueId)
+    fallbackToken = token
+    return true
+  }
+
   function play() {
     const cur = player().current()
     if (!cur) return
-    if (loadedId !== cur.track.id || !audio.src) {
+    if (loadedId !== cur.track.id || !media.getAttribute('src')) {
       void load(cur.track, true, readResume(cur.uid))
       return
     }
@@ -86,34 +141,35 @@ export function initEngine() {
       audio.src = url
       audio.load()
     }
-    usePlayback.setState({ buffering: audio.readyState < 3 })
+    usePlayback.setState({ buffering: media.readyState < 3 })
     doPlay()
   }
 
   function pause() {
     pausedAt = Date.now()
-    audio.pause()
+    media.pause()
     usePlayback.setState({ buffering: false })
   }
 
   function seek(sec: number) {
     if (!track || track.isLive) return
-    if (audio.readyState === 0) {
+    if (media.readyState === 0) {
       pendingSeek = sec
+      media.currentTime = sec
       usePlayback.setState({ currentTime: sec })
       return
     }
-    const max = isFinite(audio.duration) ? audio.duration - 0.25 : sec
-    audio.currentTime = Math.max(0, Math.min(sec, max))
+    const max = isFinite(media.duration) ? media.duration - 0.25 : sec
+    media.currentTime = Math.max(0, Math.min(sec, max))
     markProgress()
-    usePlayback.setState({ currentTime: audio.currentTime })
+    usePlayback.setState({ currentTime: media.currentTime })
   }
 
   function stop() {
     token++
-    audio.pause()
-    audio.removeAttribute('src')
-    audio.load()
+    media.pause()
+    media.removeAttribute('src')
+    if (media === audio) audio.load()
     track = null
     loadedId = null
     usePlayback.setState({ currentTime: 0, duration: 0, buffering: false })
@@ -121,16 +177,21 @@ export function initEngine() {
     if ('mediaSession' in navigator) navigator.mediaSession.metadata = null
   }
 
-  function fail(reason: string) {
+  async function fail(reason: string) {
     if (failedToken === token || !track) return
     failedToken = token
+    const my = token
+    usePlayback.setState({ buffering: true })
+    if (await tryFallback()) return
+    // The user moved on while we looked for another copy: that's not this track's failure.
+    if (my !== token || !track) return
     failures++
     const title = track.title
     const q = player().queue.length
     usePlayback.setState({ buffering: false, error: reason })
     if (q <= 1 || failures >= Math.min(q, MAX_CONSECUTIVE_FAILURES)) {
       failures = 0
-      audio.pause()
+      media.pause()
       usePlayer.setState({ isPlaying: false })
       toast(`Couldn't play “${title}” (${reason}).`, 'error')
       return
@@ -139,8 +200,13 @@ export function initEngine() {
     player().next({ auto: true, failed: true })
   }
 
-  audio.addEventListener('timeupdate', () => {
-    const t = audio.currentTime
+  /** Listens on both players, but only reacts to the one currently in use. */
+  const on = (type: string, fn: () => void) => {
+    for (const m of [audio, yt]) m.addEventListener(type, (e) => e.target === media && fn())
+  }
+
+  on('timeupdate', () => {
+    const t = media.currentTime
     if (t !== lastTime) {
       lastTime = t
       markProgress()
@@ -151,44 +217,51 @@ export function initEngine() {
       syncPositionState()
     }
   })
-  audio.addEventListener('loadedmetadata', () => {
-    if (pendingSeek > 0 && isFinite(audio.duration)) {
-      audio.currentTime = Math.min(pendingSeek, audio.duration - 1)
+  on('loadedmetadata', () => {
+    if (pendingSeek > 0 && isFinite(media.duration)) {
+      media.currentTime = Math.min(pendingSeek, media.duration - 1)
       pendingSeek = 0
     }
   })
-  audio.addEventListener('durationchange', () => {
-    const d = audio.duration
+  on('durationchange', () => {
+    const d = media.duration
     usePlayback.setState({ duration: isFinite(d) ? d : track?.duration || 0 })
   })
-  audio.addEventListener('playing', () => {
+  on('playing', () => {
     failures = 0
     markProgress()
     usePlayback.setState({ buffering: false, error: null })
     if (!player().isPlaying) usePlayer.setState({ isPlaying: true })
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
   })
-  audio.addEventListener('waiting', () => usePlayback.setState({ buffering: true }))
-  audio.addEventListener('pause', () => {
+  on('waiting', () => usePlayback.setState({ buffering: true }))
+  on('pause', () => {
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
     // Paused by something other than us (OS, headphones unplugged…): reflect it.
-    if (!audio.ended && player().isPlaying && audio.src && audio.readyState > 0) {
+    if (!media.ended && player().isPlaying && media.getAttribute('src') && media.readyState > 0) {
       pausedAt = Date.now()
       usePlayer.setState({ isPlaying: false })
     }
   })
-  audio.addEventListener('ended', () => player().next({ auto: true }))
-  audio.addEventListener('error', () => {
-    if (!audio.getAttribute('src')) return
-    const code = audio.error?.code
-    fail(code === 4 ? 'format not supported or stream offline' : code === 2 ? 'network error' : 'playback error')
+  on('ended', () => player().next({ auto: true }))
+  on('error', () => {
+    if (!media.getAttribute('src')) return
+    const err = media.error
+    void fail(err?.message ?? (err?.code === 4 ? 'format not supported or stream offline' : err?.code === 2 ? 'network error' : 'playback error'))
+  })
+  // Phones only start the YouTube player from a tap inside it; it is now shown for that.
+  yt.addEventListener('blocked', () => {
+    if (media !== yt) return
+    usePlayer.setState({ isPlaying: false })
+    usePlayback.setState({ buffering: false })
+    toast('Tap the video to start playback')
   })
 
   // Stall watchdog + sleep timer + resume position.
   setInterval(() => {
     const s = player()
-    if (s.isPlaying && track && !audio.ended && Date.now() - lastProgressAt > STALL_MS) {
-      fail(audio.readyState === 0 ? 'no response from stream' : 'stream stalled')
+    if (s.isPlaying && track && !media.ended && Date.now() - lastProgressAt > STALL_MS) {
+      void fail(media.readyState === 0 ? 'no response from stream' : 'stream stalled')
     }
     if (s.sleepAt && Date.now() >= s.sleepAt) {
       s.setSleep(null)
@@ -201,7 +274,7 @@ export function initEngine() {
     const cur = player().current()
     if (!cur || cur.track.isLive) return
     try {
-      localStorage.setItem(RESUME_KEY, JSON.stringify({ uid: cur.uid, t: Math.floor(audio.currentTime) }))
+      localStorage.setItem(RESUME_KEY, JSON.stringify({ uid: cur.uid, t: Math.floor(media.currentTime) }))
     } catch {
       /* storage full or blocked */
     }
@@ -211,10 +284,10 @@ export function initEngine() {
 
   function syncPositionState() {
     if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return
-    const d = audio.duration
+    const d = media.duration
     if (!isFinite(d) || d <= 0) return
     try {
-      navigator.mediaSession.setPositionState({ duration: d, position: Math.min(audio.currentTime, d), playbackRate: audio.playbackRate || 1 })
+      navigator.mediaSession.setPositionState({ duration: d, position: Math.min(media.currentTime, d), playbackRate: media.playbackRate || 1 })
     } catch {
       /* ignore */
     }
@@ -251,12 +324,19 @@ export function initEngine() {
     }
   }
 
+  // Read-only peek for the e2e tests (the YouTube player's clock lives in a cross-origin iframe).
+  ;(window as unknown as { __tunes: unknown }).__tunes = {
+    backend: () => (media === yt ? 'youtube' : 'audio'),
+    time: () => media.currentTime || 0,
+    paused: () => media.paused,
+  }
+
   attachEngine({
     load: (t, autoplay, startAt) => void load(t, autoplay, startAt),
     play,
     pause,
     seek,
-    currentTime: () => audio.currentTime || 0,
+    currentTime: () => media.currentTime || 0,
     applyVolume,
     stop,
   })

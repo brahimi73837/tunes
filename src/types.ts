@@ -1,4 +1,5 @@
-export type SourceId = 'audius' | 'archive' | 'radio'
+export const SOURCE_IDS = ['youtube', 'saavn', 'audius', 'archive', 'radio'] as const
+export type SourceId = (typeof SOURCE_IDS)[number]
 
 /** The one shape every source adapter produces. Everything else in the app only knows about this. */
 export interface Track {
@@ -16,6 +17,8 @@ export interface Track {
   meta?: string
   /** Link back to the source page for attribution. */
   pageUrl?: string
+  /** YouTube video that plays this track: the source itself for `youtube`, a fallback for `saavn`. */
+  youtubeId?: string
 }
 
 /** A group of tracks from a source: an Audius playlist or an Internet Archive item. */

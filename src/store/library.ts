@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import type { Playlist, Track } from '../types'
+import { SOURCE_IDS, type Playlist, type Track } from '../types'
 import { moveItem, uid } from '../lib/util'
 
 export const LIKED_ID = 'liked'
@@ -36,7 +36,7 @@ function update(list: Playlist[], id: string, fn: (p: Playlist) => Playlist): Pl
 
 function isTrack(t: unknown): t is Track {
   const x = t as Track
-  return !!x && typeof x.id === 'string' && typeof x.title === 'string' && typeof x.streamUrl === 'string' && x.streamUrl.startsWith('https://') && ['audius', 'archive', 'radio'].includes(x.source)
+  return !!x && typeof x.id === 'string' && typeof x.title === 'string' && typeof x.streamUrl === 'string' && x.streamUrl.startsWith('https://') && SOURCE_IDS.includes(x.source)
 }
 
 export const useLibrary = create<LibraryState>()(

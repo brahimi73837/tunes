@@ -58,3 +58,11 @@ export function useDebounced<T>(value: T, ms: number): T {
   }, [value, ms])
   return v
 }
+
+/** The most recent defined `value`, so lists don't blank out while the next query loads. Reset when `keep` is false. */
+export function useLatest<T>(value: T | undefined, keep = true): T | undefined {
+  const ref = useRef<T | undefined>(value)
+  if (!keep) ref.current = undefined
+  else if (value !== undefined) ref.current = value
+  return ref.current
+}

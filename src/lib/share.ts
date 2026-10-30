@@ -1,4 +1,4 @@
-import type { SourceId, Track } from '../types'
+import { SOURCE_IDS, type SourceId, type Track } from '../types'
 
 /**
  * Share links carry a whole playlist in the URL hash: #/import/<payload>
@@ -7,7 +7,7 @@ import type { SourceId, Track } from '../types'
  * Tracks are stored as compact tuples to keep links short.
  */
 
-type TrackTuple = [source: SourceId, id: string, title: string, artist: string, artwork: string, duration: number, streamUrl: string, isLive: 0 | 1, meta?: string, pageUrl?: string]
+type TrackTuple = [source: SourceId, id: string, title: string, artist: string, artwork: string, duration: number, streamUrl: string, isLive: 0 | 1, meta?: string, pageUrl?: string, youtubeId?: string]
 
 export interface SharedPlaylist {
   name: string
@@ -16,20 +16,23 @@ export interface SharedPlaylist {
 
 interface Payload { v: 1; n: string; t: TrackTuple[] }
 
-const SOURCES: SourceId[] = ['audius', 'archive', 'radio']
+const YT_ID = /^[\w-]{11}$/
 
 function toTuple(t: Track): TrackTuple {
   const tuple: TrackTuple = [t.source, t.id, t.title, t.artist, t.artwork ?? '', Math.round(t.duration || 0), t.streamUrl, t.isLive ? 1 : 0]
-  if (t.meta || t.pageUrl) tuple.push(t.meta ?? '')
-  if (t.pageUrl) tuple.push(t.pageUrl)
+  if (t.meta || t.pageUrl || t.youtubeId) tuple.push(t.meta ?? '')
+  if (t.pageUrl || t.youtubeId) tuple.push(t.pageUrl ?? '')
+  if (t.youtubeId) tuple.push(t.youtubeId)
   return tuple
 }
 
 function fromTuple(x: unknown): Track | null {
   if (!Array.isArray(x) || x.length < 8) return null
-  const [source, id, title, artist, artwork, duration, streamUrl, isLive, meta, pageUrl] = x
-  if (!SOURCES.includes(source) || typeof id !== 'string' || typeof streamUrl !== 'string') return null
+  const [source, id, title, artist, artwork, duration, streamUrl, isLive, meta, pageUrl, youtubeId] = x
+  if (!SOURCE_IDS.includes(source) || typeof id !== 'string' || typeof streamUrl !== 'string') return null
   if (!streamUrl.startsWith('https://')) return null
+  const ytId = typeof youtubeId === 'string' && YT_ID.test(youtubeId) ? youtubeId : undefined
+  if (source === 'youtube' && !ytId) return null
   return {
     source,
     id,
@@ -41,6 +44,7 @@ function fromTuple(x: unknown): Track | null {
     isLive: isLive === 1 || isLive === true,
     meta: meta ? String(meta) : undefined,
     pageUrl: typeof pageUrl === 'string' && pageUrl.startsWith('https://') ? pageUrl : undefined,
+    ...(ytId ? { youtubeId: ytId } : {}),
   }
 }
 

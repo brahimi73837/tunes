@@ -25,11 +25,21 @@ export const attachEngine = (e: Engine) => {
 }
 
 /** High-frequency playback state, deliberately not persisted. */
-export const usePlayback = create<{ currentTime: number; duration: number; buffering: boolean; error: string | null }>(() => ({
+export const usePlayback = create<{
+  currentTime: number
+  duration: number
+  buffering: boolean
+  error: string | null
+  /** Which player is producing sound: our <audio> element or the hidden YouTube player. */
+  backend: 'audio' | 'youtube'
+  videoVisible: boolean
+}>(() => ({
   currentTime: 0,
   duration: 0,
   buffering: false,
   error: null,
+  backend: 'audio',
+  videoVisible: false,
 }))
 
 export interface PlayerState {

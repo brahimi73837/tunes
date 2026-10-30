@@ -2,6 +2,7 @@ import { useAsync } from '../lib/hooks'
 import { navigate } from '../lib/router'
 import * as archive from '../sources/archive'
 import * as audius from '../sources/audius'
+import * as catalog from '../sources/catalog'
 import * as radio from '../sources/radio'
 import { LIKED_ID, useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
@@ -21,6 +22,7 @@ export async function curatedStations(signal?: AbortSignal): Promise<Track[]> {
 }
 
 export function Home() {
+  const top = useAsync('home:charts', (s) => catalog.charts(s))
   const trending = useAsync('home:trending', (s) => audius.trending(undefined, s))
   const stations = useAsync('home:stations', curatedStations)
   const playlists = useAsync('home:audius-playlists', (s) => audius.trendingPlaylists(s))
@@ -59,12 +61,16 @@ export function Home() {
         />
       </div>
 
-      <Section title="Trending on Audius" testId="home-trending" action={trending.data?.length ? <PlayAll tracks={trending.data} /> : undefined}>
-        {trending.error ? <ErrorState message={trending.error} onRetry={trending.retry} /> : trending.data ? <TrackList tracks={trending.data.slice(0, 10)} testId="trending-list" /> : <TrackListSkeleton rows={10} />}
+      <Section title="Top songs today" testId="home-charts" action={top.data?.length ? <PlayAll tracks={top.data} /> : undefined}>
+        {top.error ? <ErrorState message={top.error} onRetry={top.retry} /> : top.data ? <TrackList tracks={top.data.slice(0, 10)} testId="charts-list" /> : <TrackListSkeleton rows={10} />}
       </Section>
 
       <Section title="Browse by genre" testId="home-genres">
         <GenreTiles />
+      </Section>
+
+      <Section title="Trending on Audius" testId="home-trending" action={trending.data?.length ? <PlayAll tracks={trending.data} /> : undefined}>
+        {trending.error ? <ErrorState message={trending.error} onRetry={trending.retry} /> : trending.data ? <TrackList tracks={trending.data.slice(0, 6)} testId="trending-list" /> : <TrackListSkeleton rows={6} />}
       </Section>
 
       <Section title="Radio picks" action={<SeeAll to="/radio" />} testId="home-radio">
