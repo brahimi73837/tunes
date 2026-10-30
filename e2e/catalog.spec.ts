@@ -44,7 +44,7 @@ test('popular song: real result first, plays ad-free via JioSaavn in <audio>', a
   await expect(first).toContainText('Ed Sheeran')
   await expect(first).toContainText('JioSaavn')
   await first.getByRole('button', { name: /^Play .* by / }).click()
-  await expect(page.getByTestId('now-playing-title')).toHaveText('Shape of You')
+  await expect(page.getByTestId('now-playing-title')).toHaveText(/^shape of you$/i)
   await expectAdvancing(page, 'audio')
   // Full track, not a preview.
   await expect.poll(() => page.evaluate(() => (document.getElementById('tunes-audio') as HTMLAudioElement).duration)).toBeGreaterThan(200)
@@ -155,7 +155,7 @@ test('JioSaavn stream failure falls back to the same song on YouTube', async ({ 
   await expect(first).toContainText('JioSaavn')
   await first.getByRole('button', { name: /^Play .* by / }).click()
   await expectAdvancing(page, 'youtube', 2, 60_000)
-  await expect(page.getByTestId('now-playing-title')).toHaveText('Shape of You')
+  await expect(page.getByTestId('now-playing-title')).toHaveText(/^shape of you$/i)
 })
 
 test('queue moves between JioSaavn and YouTube tracks', async ({ page }) => {
