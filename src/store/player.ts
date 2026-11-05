@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { QueueItem, RepeatMode, Track } from '../types'
 import { moveItem, shuffleArray, uid } from '../lib/util'
+import { settings } from './settings'
 
 /**
  * The player store holds the *desired* state (queue, what should be playing, volume…).
@@ -33,6 +34,8 @@ export const usePlayback = create<{
   /** Which player is producing sound: our <audio> element or the hidden YouTube player. */
   backend: 'audio' | 'youtube'
   videoVisible: boolean
+  /** What the engine is doing while there's no sound yet ("Finding the stream…"). */
+  status: string | null
 }>(() => ({
   currentTime: 0,
   duration: 0,
@@ -40,6 +43,7 @@ export const usePlayback = create<{
   error: null,
   backend: 'audio',
   videoVisible: false,
+  status: null,
 }))
 
 export interface PlayerState {
@@ -83,6 +87,13 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
 export const usePlayer = create<PlayerState>()(
   persist(
     (set, get) => {
+      // End of queue: stop on the last track, rewound.
+      const stopAtEnd = () => {
+        set({ isPlaying: false })
+        engine?.pause()
+        engine?.seek(0)
+      }
+
       const loadCurrent = (autoplay: boolean) => {
         const cur = get().current()
         if (!cur) return
@@ -154,10 +165,25 @@ export const usePlayer = create<PlayerState>()(
             set({ index: 0 })
             loadCurrent(get().isPlaying || auto)
           } else if (auto) {
-            // End of queue: stop on the last track, rewound.
-            set({ isPlaying: false })
-            engine?.pause()
-            engine?.seek(0)
+            const last = queue[index]?.track
+            if (!failed && last?.youtubeId && settings().autoplay) {
+              // Keep the music going with songs like the last one (YouTube Music's radio).
+              usePlayback.setState({ status: 'Finding more like this…' })
+              const known = new Set(queue.map((q) => q.track.id).concat(queue.flatMap((q) => (q.track.youtubeId ? [`youtube:${q.track.youtubeId}`] : []))))
+              void import('../lib/radio')
+                .then((m) => m.similarTo(last, known))
+                .then((more) => {
+                  usePlayback.setState({ status: null })
+                  // Only if nothing else happened meanwhile.
+                  if (get().queue.length !== queue.length || get().index !== index) return
+                  if (!more.length) return stopAtEnd()
+                  const items = more.map(item)
+                  set((s) => ({ queue: [...s.queue, ...items], unshuffled: s.unshuffled ? [...s.unshuffled, ...items] : null, index: index + 1, isPlaying: true }))
+                  loadCurrent(true)
+                })
+              return
+            }
+            stopAtEnd()
           } else {
             set({ index: 0, isPlaying: false })
             loadCurrent(false)

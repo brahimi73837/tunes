@@ -19,6 +19,9 @@ export interface Track {
   pageUrl?: string
   /** YouTube video that plays this track: the source itself for `youtube`, a fallback for `saavn`. */
   youtubeId?: string
+  /** YouTube Music browse ids for the artist and album pages. */
+  artistId?: string
+  albumId?: string
 }
 
 /** A group of tracks from a source: an Audius playlist or an Internet Archive item. */

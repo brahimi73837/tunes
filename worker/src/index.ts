@@ -1,5 +1,7 @@
 import { bestMatch, mergeSongs, videoMatch } from './match'
+import * as music from './music'
 import * as saavn from './saavn'
+import { browserPool, instancePool, resolveStream } from './streams'
 import { songTitleFromVideo } from './text'
 import type { CatalogTrack, Env } from './types'
 import * as youtube from './youtube'
@@ -7,15 +9,21 @@ import * as youtube from './youtube'
 /**
  * Tunes catalog API. The app is a static site, and neither YouTube nor JioSaavn send CORS
  * headers, so this Worker does the searching and returns plain JSON. Audio never flows
- * through here: JioSaavn files come straight from its CDN, YouTube plays in the IFrame player.
+ * through here: JioSaavn files come straight from its CDN, YouTube audio from an Invidious
+ * proxy picked by /v1/streams.
  *
- *   GET /v1/search?q=…&type=songs|videos
+ *   GET /v1/search?q=…&type=songs|videos|artists|albums
  *   GET /v1/suggest?q=…
  *   GET /v1/charts?country=GB                         (today's top songs; global when the country has no chart)
  *   GET /v1/resolve?title=…&artist=…&duration=…&not=saavn|youtube   (find another copy)
+ *   GET /v1/streams?id=VIDEO&exclude=host,host        (ad-free audio URLs for a YouTube video)
+ *   GET /v1/instances                                 (Invidious hosts the app may also call directly)
+ *   GET /v1/artist?id=UC…   /v1/album?id=MPREb_…   /v1/playlist?id=PL…|URL
+ *   GET /v1/radio?id=VIDEO                            (YouTube Music's up-next for a song)
+ *   GET /v1/lyrics?id=VIDEO
  */
 
-const CACHE_SECONDS = { search: 900, suggest: 3600, resolve: 3600, charts: 6 * 3600 }
+const CACHE_SECONDS = { search: 900, suggest: 3600, resolve: 3600, charts: 6 * 3600, streams: 3600, page: 6 * 3600, radio: 3600, lyrics: 7 * 86400 }
 /** Chart entries we look up on JioSaavn individually; Workers allow 50 subrequests per call. */
 const CHART_MATCHES = 30
 /** Top search results without a JioSaavn copy that get their own lookup, and how long we wait for them. */
@@ -75,10 +83,13 @@ async function settle<T>(p: Promise<T>, fallback: T, label: string, errors: stri
 
 async function search(url: URL, env: Env) {
   const q = param(url, 'q')
-  const type = url.searchParams.get('type') === 'videos' ? 'videos' : 'songs'
+  const type = url.searchParams.get('type') ?? 'songs'
   const errors: string[] = []
   if (type === 'videos') {
     return { items: await youtube.searchVideos(q) }
+  }
+  if (type === 'artists' || type === 'albums') {
+    return { cards: await music.searchCards(q, type === 'artists' ? 'artist' : 'album') }
   }
   const [yt, sv] = await Promise.all([
     settle(youtube.searchSongs(q), [], 'youtube', errors),
@@ -120,9 +131,49 @@ async function charts(url: URL, env: Env) {
   return { items: await upgradeTop(songs, env, CHART_MATCHES, 5000) }
 }
 
+const ID = {
+  video: /^[\w-]{11}$/,
+  artist: /^UC[\w-]{22}$/,
+  album: /^MPREb_[\w-]+$/,
+  playlist: /^(VL)?(PL|OLAK5uy_|RD|LL|UU|FL)[\w-]{8,}$/,
+}
+
+function idParam(url: URL, kind: keyof typeof ID): string {
+  let v = param(url, 'id', 300)
+  // Accept a pasted YouTube / YouTube Music link for playlists.
+  if (kind === 'playlist' && /^https?:\/\//.test(v)) v = new URL(v).searchParams.get('list') ?? ''
+  if (!ID[kind].test(v)) throw new HttpError(400, `Invalid ${kind} id`)
+  return v
+}
+
+async function streams(url: URL, env: Env) {
+  const exclude = (url.searchParams.get('exclude') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  return resolveStream(idParam(url, 'video'), { instances: await instancePool(env.INVIDIOUS_INSTANCES), exclude }).catch((e) => {
+    throw new HttpError(502, e instanceof Error ? e.message : String(e))
+  })
+}
+
 async function route(req: Request, env: Env): Promise<{ body: unknown; ttl: number }> {
   const url = new URL(req.url)
   switch (url.pathname) {
+    case '/v1/streams': {
+      const body = await streams(url, env)
+      // Never cache past the URLs' own expiry; never cache a retry that excluded hosts.
+      const left = body.expires - Math.floor(Date.now() / 1000) - 600
+      return { body, ttl: url.searchParams.get('exclude') ? 0 : Math.max(0, Math.min(CACHE_SECONDS.streams, left)) }
+    }
+    case '/v1/instances':
+      return { body: { instances: await browserPool() }, ttl: 3600 }
+    case '/v1/artist':
+      return { body: await music.artist(idParam(url, 'artist')), ttl: CACHE_SECONDS.page }
+    case '/v1/album':
+      return { body: await music.album(idParam(url, 'album')), ttl: CACHE_SECONDS.page }
+    case '/v1/playlist':
+      return { body: await music.playlist(idParam(url, 'playlist').replace(/^VL/, '')), ttl: CACHE_SECONDS.radio }
+    case '/v1/radio':
+      return { body: { items: await music.radio(idParam(url, 'video')) }, ttl: CACHE_SECONDS.radio }
+    case '/v1/lyrics':
+      return { body: { lyrics: await music.lyrics(idParam(url, 'video')) }, ttl: CACHE_SECONDS.lyrics }
     case '/v1/search':
       return { body: await search(url, env), ttl: CACHE_SECONDS.search }
     case '/v1/suggest':

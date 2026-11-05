@@ -11,6 +11,8 @@ import { Home } from './views/Home'
 import { ImportView, LibraryView, PlaylistView } from './views/Library'
 import { RadioView } from './views/Radio'
 import { SearchView } from './views/Search'
+import { ArtistView, YouTubeAlbumView, YouTubePlaylistView } from './views/Music'
+import { SettingsView } from './views/Settings'
 import { EmptyState } from './components/Cards'
 import { Page } from './views/common'
 
@@ -32,6 +34,14 @@ function Routes() {
       return <ArchiveAlbumView key={b} id={b} />
     case 'audius-playlist':
       return <AudiusPlaylistView key={b} id={b} />
+    case 'artist':
+      return <ArtistView key={b} id={b} />
+    case 'yt-album':
+      return <YouTubeAlbumView key={b} id={b} />
+    case 'yt-playlist':
+      return <YouTubePlaylistView key={b} id={b} />
+    case 'settings':
+      return <SettingsView />
     case 'genre':
       return <GenreView key={b} genre={b} />
     case 'import':

@@ -4,7 +4,9 @@ import { usePlayback, usePlayer } from '../store/player'
 import { useUI } from '../store/ui'
 import { Artwork } from './Artwork'
 import { PlayButton, SeekBar, SleepTimerButton, TransportControls, Visualizer, VolumeControl } from './Controls'
-import { CloseIcon, MaximizeIcon, MinimizeIcon, MoreIcon, NextIcon, QueueIcon, VideoIcon, WaveIcon } from './Icons'
+import { CloseIcon, MaximizeIcon, MicIcon, MinimizeIcon, MoreIcon, NextIcon, QueueIcon, VideoIcon, WaveIcon } from './Icons'
+import { LyricsPanel } from './Lyrics'
+import { href } from '../lib/router'
 import { MenuButton } from './Menu'
 import { LikeButton, LiveBadge, SourceBadge } from './TrackList'
 import { trackMenuItems } from './trackActions'
@@ -12,6 +14,7 @@ import { trackMenuItems } from './trackActions'
 function NowPlayingInfo({ onOpen }: { onOpen: () => void }) {
   const t = usePlayer((s) => s.queue[s.index]?.track)
   const error = usePlayback((s) => s.error)
+  const status = usePlayback((s) => s.status)
   if (!t) {
     return (
       <div className="flex min-w-0 items-center gap-3">
@@ -31,7 +34,9 @@ function NowPlayingInfo({ onOpen }: { onOpen: () => void }) {
         </button>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
           {t.isLive && <LiveBadge />}
-          <span className="truncate">{error ? <span className="text-rose-300">{error}</span> : t.artist}</span>
+          <span className="truncate" data-testid="now-playing-subtitle">
+            {error ? <span className="text-rose-300">{error}</span> : status ? <span className="text-accent-strong">{status}</span> : t.artist}
+          </span>
         </div>
       </div>
       <LikeButton track={t} className="ml-1 hidden h-8 w-8 shrink-0 sm:inline-flex" />
@@ -61,7 +66,7 @@ function VideoButton({ className = '' }: { className?: string }) {
 }
 
 export function PlayerBar() {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState<false | 'player' | 'lyrics'>(false)
   const queueOpen = useUI((s) => s.queueOpen)
   const visualizerOn = useUI((s) => s.visualizer)
   const hasTrack = usePlayer((s) => s.index >= 0)
@@ -81,7 +86,7 @@ export function PlayerBar() {
           <div className="h-full bg-white" style={{ width: `${pct}%` }} />
         </div>
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] sm:gap-4">
-          <NowPlayingInfo onOpen={() => hasTrack && setExpanded(true)} />
+          <NowPlayingInfo onOpen={() => hasTrack && setExpanded('player')} />
 
           <div className="hidden flex-col items-center gap-1 sm:flex">
             <TransportControls />
@@ -101,6 +106,9 @@ export function PlayerBar() {
               {visualizerOn && hasTrack && <Visualizer bars={10} className="mr-1 hidden h-6 w-14 xl:block" />}
               <SleepTimerButton className="hidden lg:inline-flex" />
               <VideoButton />
+              <button type="button" aria-label="Lyrics" title="Lyrics" data-testid="lyrics-button" className="icon-btn h-8 w-8" disabled={!hasTrack || current?.isLive} onClick={() => setExpanded('lyrics')}>
+                <MicIcon size={17} />
+              </button>
               <button
                 type="button"
                 aria-label="Queue"
@@ -119,15 +127,17 @@ export function PlayerBar() {
           </div>
         </div>
       </footer>
-      {expanded && current && <NowPlayingSheet onClose={() => setExpanded(false)} />}
+      {expanded && current && <NowPlayingSheet initialLyrics={expanded === 'lyrics'} onClose={() => setExpanded(false)} />}
     </>
   )
 }
 
 /** Full-screen now-playing view (mobile primary controls; also a nice desktop "lean back" view). */
-export function NowPlayingSheet({ onClose }: { onClose: () => void }) {
+export function NowPlayingSheet({ onClose, initialLyrics = false }: { onClose: () => void; initialLyrics?: boolean }) {
   const t = usePlayer((s) => s.queue[s.index]?.track)
   const visualizerOn = useUI((s) => s.visualizer)
+  // Phones swap the artwork for lyrics; wide screens show both side by side.
+  const [lyrics, setLyrics] = useState(initialLyrics)
   if (!t) return null
   return (
     <div className="fade-in fixed inset-0 z-50 flex flex-col overflow-y-auto bg-bg" role="dialog" aria-label="Now playing" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
@@ -144,14 +154,24 @@ export function NowPlayingSheet({ onClose }: { onClose: () => void }) {
           <MoreIcon />
         </MenuButton>
       </div>
-      <div className="relative mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-6 pb-10">
-        <Artwork src={t.artwork} seed={t.id} source={t.source} className="aspect-square w-full shadow-2xl shadow-black/60" rounded="rounded-2xl" iconSize={64} />
+      <div className="relative mx-auto flex w-full max-w-6xl flex-1 gap-12 px-6 pb-10 lg:items-stretch">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6">
+        {lyrics ? (
+          <LyricsPanel track={t} className="aspect-square w-full lg:hidden" />
+        ) : null}
+        <Artwork src={t.artwork} seed={t.id} source={t.source} className={`aspect-square w-full shadow-2xl shadow-black/60 ${lyrics ? 'hidden lg:block' : ''}`} rounded="rounded-2xl" iconSize={64} />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-xl font-bold text-white">{t.title}</div>
             <div className="mt-1 flex items-center gap-2 truncate text-sm text-zinc-400">
               <SourceBadge source={t.source} />
-              <span className="truncate">{t.artist}</span>
+              {t.artistId ? (
+                <a href={href(`/artist/${t.artistId}`)} onClick={onClose} className="truncate hover:text-white hover:underline">
+                  {t.artist}
+                </a>
+              ) : (
+                <span className="truncate">{t.artist}</span>
+              )}
             </div>
           </div>
           <LikeButton track={t} size={24} className="h-10 w-10 shrink-0" />
@@ -162,10 +182,17 @@ export function NowPlayingSheet({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between">
           <SleepTimerButton />
           <VolumeControl />
-          <button type="button" aria-label="Toggle visualizer" title="Visualizer" className={`icon-btn h-8 w-8 ${visualizerOn ? 'text-accent-strong' : ''}`} onClick={() => useUI.getState().toggleVisualizer()}>
-            <WaveIcon size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button type="button" aria-label="Lyrics" aria-pressed={lyrics} title="Lyrics" data-testid="lyrics-toggle" className={`icon-btn h-8 w-8 lg:hidden ${lyrics ? 'text-accent-strong' : ''}`} disabled={t.isLive} onClick={() => setLyrics(!lyrics)}>
+              <MicIcon size={18} />
+            </button>
+            <button type="button" aria-label="Toggle visualizer" title="Visualizer" className={`icon-btn h-8 w-8 ${visualizerOn ? 'text-accent-strong' : ''}`} onClick={() => useUI.getState().toggleVisualizer()}>
+              <WaveIcon size={18} />
+            </button>
+          </div>
         </div>
+      </div>
+      {!t.isLive && <LyricsPanel track={t} className="hidden max-h-[80vh] flex-1 self-center lg:flex" />}
       </div>
     </div>
   )

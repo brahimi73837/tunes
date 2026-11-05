@@ -1,6 +1,8 @@
 name = "tunes-api"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
+# YouTube.js needs a few Node built-ins.
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [vars]

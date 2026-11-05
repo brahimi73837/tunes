@@ -84,6 +84,8 @@ export function mergeSongs(yt: CatalogTrack[], saavn: CatalogTrack[]): CatalogTr
       meta: y.meta ?? s.meta,
       explicit: y.explicit || s.explicit,
       youtubeId: y.youtubeId,
+      artistId: y.artistId,
+      albumId: y.albumId,
     }
   })
   // The same recording often appears twice (single and album release); show it once.

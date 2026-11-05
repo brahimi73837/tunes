@@ -10,7 +10,8 @@ import type { Playlist } from '../types'
 import { Artwork } from '../components/Artwork'
 import { EmptyState, ErrorState } from '../components/Cards'
 import { askConfirm, askText } from '../components/Dialog'
-import { DownloadIcon, EditIcon, HeartFillIcon, MoreIcon, MusicIcon, PlusIcon, SearchIcon, ShareIcon, TrashIcon, UploadIcon } from '../components/Icons'
+import { DownloadIcon, EditIcon, HeartFillIcon, MoreIcon, MusicIcon, PlusIcon, SearchIcon, ShareIcon, TrashIcon, UploadIcon, YouTubeIcon } from '../components/Icons'
+import { playlistIdFrom } from '../sources/catalog'
 import { MenuButton } from '../components/Menu'
 import { TrackList, TrackListSkeleton } from '../components/TrackList'
 import { createPlaylistWith } from '../components/trackActions'
@@ -149,6 +150,15 @@ export function PlaylistView({ id }: { id: string }) {
   )
 }
 
+/** Asks for a YouTube / YouTube Music playlist link and opens it, ready to play or save. */
+async function importYouTube() {
+  const input = await askText({ title: 'Import a YouTube playlist', placeholder: 'https://music.youtube.com/playlist?list=…', confirmLabel: 'Open' })
+  if (!input) return
+  const id = playlistIdFrom(input)
+  if (!id) return toast('That doesn’t look like a YouTube playlist link', 'error')
+  navigate(`/yt-playlist/${id}`)
+}
+
 export function LibraryView() {
   const playlists = useLibrary((s) => s.playlists)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -174,6 +184,9 @@ export function LibraryView() {
         </button>
         <button type="button" className="btn-ghost" onClick={() => fileRef.current?.click()}>
           <UploadIcon size={16} /> Import JSON
+        </button>
+        <button type="button" className="btn-ghost" onClick={() => void importYouTube()} data-testid="import-youtube">
+          <YouTubeIcon size={16} /> Import from YouTube
         </button>
         <input
           ref={fileRef}
