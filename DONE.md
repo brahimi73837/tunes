@@ -2,7 +2,7 @@ https://brahimi73837.github.io/tunes/
 
 # Tunes — done
 
-A no-login, no-install music player that runs in the browser and is hosted on GitHub Pages. It searches the **full YouTube / YouTube Music catalog**, plays popular songs **ad-free from JioSaavn**, and keeps Audius, the Internet Archive and live radio.
+A no-login, no-install, **ad-free** music player that runs in the browser and is hosted on GitHub Pages. It searches the **full YouTube / YouTube Music catalog**, plays everything as plain audio (JioSaavn files, or YouTube audio through privacy proxies, the way [ytify](https://github.com/n-ce/ytify) does), and adds artist and album pages, radio, autoplay, synced lyrics, playlist import, Audius, the Internet Archive and live radio.
 Repo: https://github.com/brahimi73837/tunes (public). Every push to `main` runs the unit tests, builds and deploys via `.github/workflows/deploy.yml`. The search API is a Cloudflare Worker (`worker/`), deployed separately with `cd worker && npm run deploy`.
 
 ## Full catalog (YouTube Music + JioSaavn)
@@ -14,15 +14,39 @@ Repo: https://github.com/brahimi73837/tunes (public). Every push to `main` runs 
 5. Duplicate releases of the same recording are shown once.
 6. Results are cached at the edge for 15 minutes.
 
-**Playback:**
-- **JioSaavn match** (badge "JioSaavn"): the full 320 kbps AAC file plays straight from `aac.saavncdn.com` in our own `<audio>` element. That means no ads, background playback, and lock-screen and media-key controls. The Worker decrypts JioSaavn's DES-"encrypted" media URL with a small pure-JS DES.
-- **YouTube only** (badge "YouTube"): plays through the **official YouTube IFrame player** (youtube-nocookie.com), kept off-screen so you only hear audio. The 🎬 button in the player bar shows the video in a floating window. Seek, pause, volume, next/prev, resume-after-reload, queue and playlists all work the same as for any other track.
-- **Fallback:** if a JioSaavn file fails, the same song plays from YouTube right away, from the same position. If a YouTube video won't play (for example the owner blocks embedding), `/v1/resolve` finds another copy, JioSaavn first and then a different upload such as the official music video. Only after that does the player skip the track.
+**Playback engine (since November 2026; modeled on ytify):** every track plays in the app's own `<audio>` element, never in YouTube's player unless you allow it as a last resort. So there are no ads, playback continues in the background, and lock-screen and media-key controls work for everything. For each track it works down a ladder:
+1. **JioSaavn file** (badge "JioSaavn"): the full 320 kbps AAC file straight from `aac.saavncdn.com`. Songs that came from YouTube Music (artist pages, albums, radio) also get a quick JioSaavn lookup when they start (≤1.5s, cut to 0.4s once the YouTube audio is ready).
+2. **YouTube audio through an Invidious proxy** (badge "YouTube"). YouTube now serves only the first ~1MB of a stream unless the client presents a browser-attestation ("PO") token. A Cloudflare Worker can't mint one; I tested this and got 403s after the first megabyte. Invidious servers can, and they proxy the audio. The browser races direct calls to the servers that allow it (`yt.chocolatemoo53.com`, `yt.omada.cafe`) against the Worker's `/v1/streams`. The Worker races every known server plus the public directory, and only accepts one that serves bytes **past** the first megabyte. The first answer wins, the result is cached until the URL expires, and the next track's stream is fetched while the current one plays. Opus 160 kbps where the browser supports it, AAC 128 kbps on Safari.
+3. **A second proxy server** if the first one fails, even mid-song. Playback resumes at the same position.
+4. **YouTube's own player** (hidden; 🎬 shows it), *only if* "Use YouTube's player as a last resort" is on in Settings. It can show ads.
+5. **Another upload of the same song** (`/v1/resolve`), and only then skip.
+
+While a stream is being found, the player bar shows "Finding the stream…" instead of sitting silent.
+
+**Music pages (YouTube.js in the Worker):** artist pages (Popular, Albums, Singles & EPs, Fans also like, About), album pages (play, shuffle, save to library), and YouTube / YouTube Music playlists (Library → *Import from YouTube*: paste a link, then play or save). Artist names in track rows link to the artist; track menus have *Go to artist* and *Go to album*.
+**Radio & autoplay:** *Start radio* on any song plays YouTube Music's up-next for it. When your queue ends, **autoplay** keeps going with similar songs (Settings), skipping other uploads of the song that just played. Home shows *Because you listened to …*, built from your last song.
+**Lyrics:** time-synced lyrics from [LRCLIB](https://lrclib.net) that follow the song; click a line to jump there. YouTube Music's plain lyrics are the fallback. The mic button opens them; wide screens show them next to the artwork.
+**Settings:** streaming quality (High / Normal / Data saver, for both JioSaavn and YouTube audio), autoplay, and the YouTube-player last resort.
 
 **Other features:** search suggestions as you type (arrow keys, Enter and Esc; the list closes itself 1.8s after you stop typing). Results update live, and the previous results stay on screen while the next ones load. There's a **Videos** tab for any YouTube video (concerts, live sets, covers), and **Top songs today** on Home. That's YouTube Music's daily chart for your country, taken from the browser language (en-GB → UK), falling back to Global. Video titles are cleaned to song titles ("Artist - Song (Official Video)" → "Song"), and the top 30 are matched to JioSaavn; about half play ad-free.
 
 ## Verification
-- **Full-catalog tests (added with the catalog work):**
+- **Engine & music pages (November 2026):** 49 unit tests and 21 Chrome e2e tests (plus the 10 original), all passing locally. The e2e tests check *where the sound comes from*: a JioSaavn file, proxied YouTube audio, or YouTube's player. They cover:
+  - any YouTube video playing ad-free in `<audio>`, with no YouTube iframe on the page
+  - seeking far into proxied audio
+  - a proxy server dying mid-song, then a switch to another server at the same position
+  - every proxy blocked, then YouTube's player as last resort; and with the setting off, a skip
+  - a JioSaavn CDN failure, then proxied YouTube audio
+  - the artist page (from search to top songs, albums and similar artists, then playing it and opening an album)
+  - the album page (play, save, and the artist link in rows)
+  - Start radio, and autoplay at the end of the queue
+  - synced lyrics (and clicking a line to seek)
+  - YouTube Music playlist import and save
+  - the data-saver quality setting
+  - Home charts and the "Because you listened to" mix
+  - queue moves between sources, and auto-advance from JioSaavn into a YouTube video
+  - a liked video resuming after a reload
+- **Full-catalog tests (October 2026; the YouTube tests have since been rewritten for the new engine):**
   - **Unit, 22.** Worker: DES decryption checked against `openssl des-ecb`; YouTube Music song-row, video and JioSaavn parsing from saved real responses; title normalization; turning music-video titles into song titles; artist splitting; the matching and merge rules; duplicate collapse; music-video matching. App: API response sanitizing and YouTube id handling in share links.
   - **E2E, 12.** These run in branded Google Chrome **without** the autoplay override, so real autoplay rules apply:
     1. A popular song is the first result, has a JioSaavn stream, and a full-length track plays in `<audio>`.
@@ -80,9 +104,10 @@ Repo: https://github.com/brahimi73837/tunes (public). Every push to `main` runs 
 **Not used:** Invidious and Piped. Public instances are mostly dead or have their APIs switched off (the healthiest Invidious instance reported `api: false, cors: false`). Server-side YouTube stream extraction (yt-dlp-style) wasn't used either: YouTube blocks it from datacenter IPs ("confirm you're not a bot", PO tokens). The IFrame player runs in your own browser, so it doesn't hit that problem.
 
 ## Decisions & known limitations
-- **YouTube-only tracks can show YouTube's own ads.** This happens on monetized videos and depends on YouTube, not on us; an ad blocker in your browser usually removes them. JioSaavn tracks never have ads. On phones, a YouTube-only track may need **one tap on the video** to start, because mobile browsers won't start a cross-origin player without a tap. The player shows itself and says so. Lock-screen and background playback is reliable for JioSaavn tracks; for YouTube tracks it depends on the browser.
+- **Ad-free YouTube audio depends on community Invidious servers.** In my scan of about 90 public Invidious and Piped servers, exactly two worked: `yt.omada.cafe` (the one ytify uses) and `yt.chocolatemoo53.com`. Every Piped server was down. ytify has the same dependency, plus a paid RapidAPI fallback that I didn't add (it needs a paid key). The Worker also picks up new servers from the public directory automatically. If both are down at once, a song still plays from JioSaavn when it's there, then through YouTube's player (can show ads) if you allow it in Settings, otherwise it's skipped with a message. To add a server without touching the app, set `INVIDIOUS_INSTANCES` on the Worker; browser-direct servers are in `BROWSER_INSTANCES` in `worker/src/streams.ts`.
+- **ytify's code isn't copied.** ytify is GPL-3.0, so copying it would make Tunes GPL too. I studied its architecture (JioSaavn first for songs, Invidious proxies for everything else, YouTube.js for browse pages) and wrote our own code on top of [YouTube.js](https://github.com/LuanRT/YouTube.js) (MIT).
 - **JioSaavn region.** JioSaavn hides most licensed music from IPs outside India. The Worker sends an Indian address as `X-Forwarded-For` (`SAAVN_GEO_IP` in `worker/src/types.ts` overrides it). The audio CDN (`aac.saavncdn.com`) serves the files worldwide. If JioSaavn ever stops honoring this, everything still plays through YouTube.
-- **Unofficial APIs.** YouTube Music's InnerTube API and JioSaavn's `api.php` aren't public APIs and their formats can change. The parsers are defensive and covered by fixture tests; if one breaks, update `worker/src/youtube.ts` or `worker/src/saavn.ts` and run `npm run deploy` in `worker/`. Using them is against those services' terms, so treat this as a personal project.
+- **Unofficial APIs.** YouTube Music's InnerTube API (directly and through YouTube.js), Invidious and JioSaavn's `api.php` aren't public APIs and their formats can change. The parsers are defensive and covered by fixture tests; if one breaks, update `worker/src/youtube.ts` or `worker/src/saavn.ts` and run `npm run deploy` in `worker/`. Using them is against those services' terms, so treat this as a personal project.
 - **Worker limits:** Cloudflare's free plan allows 100k requests a day. A search costs one request plus up to about 10 upstream calls, and results are edge-cached. CORS only allows the GitHub Pages origin and localhost (`ALLOWED_ORIGINS` in `worker/wrangler.toml`).
 - **The visualizer is decorative.** It animates from the play state instead of reading audio samples. A real analyser needs `crossOrigin` on the `<audio>` element, which would break most radio streams because they send no CORS headers. So the main audio element never gets `crossOrigin`, as the brief required.
 - About half of the radio directory is http-only and is hidden because browsers block mixed content. Some https stations are also offline at any given moment; the player auto-skips those.

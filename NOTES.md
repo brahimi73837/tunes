@@ -47,3 +47,23 @@ A real Web Audio analyser needs `crossOrigin="anonymous"` on the audio element; 
 - From a non-Indian IP, originals are hidden (only covers come back, `rights.code: 1 "Unavailable"`). The same request with `X-Forwarded-For: <Indian IP>` returns the originals (`rights.code: 0`). Cookies alone don't do it. Cloudflare Workers pass the header through.
 - `more_info.encrypted_media_url` = base64 DES-ECB (key `38346591`) of `https://aac.saavncdn.com/…_96.mp4`; `_320.mp4` / `_160.mp4` exist alongside.
 - `song.generateAuthToken` returns a signed `web.saavncdn.com` URL that is **403 from Malta**; the unsigned `aac.saavncdn.com` path is 200 `audio/mp4`, `Access-Control-Allow-Origin: *`, full length (Shape of You: 233.7 s, 9.4 MB at 320 kbps).
+
+# ytify study & stream probes (2026-11-05)
+
+## How ytify plays ad-free YouTube audio (github.com/n-ce/ytify, GPL-3.0; studied, not copied)
+- Songs from "- Topic" channels: JioSaavn first (`aac.saavncdn.com/…_320.mp4` via a lookup by title/artist/duration).
+- Everything else: `GET https://<invidious>/api/v1/videos/:id` against a shuffled list of 4 servers, then plays an `adaptiveFormats` audio URL in a plain `<audio>`; music ("Topic") streams are rewritten to go through the server's own `/videoplayback` proxy.
+- Last resort: its Netlify edge function calls the paid RapidAPI `yt-api` with server-side keys.
+- YouTube.js (youtubei.js 18.x) only for browse data (search, artist, album, playlist); its AGENTS.md forbids player/getInfo calls (rate limits, SABR, bot checks).
+
+## Can we resolve streams ourselves? No.
+- InnerTube `/player` from a home IP: `IOS` and `ANDROID` clients return direct audio URLs (`ANDROID_VR` → LOGIN_REQUIRED, `TVHTML5_SIMPLY_EMBEDDED_PLAYER` → unsupported, `WEB_EMBEDDED_PLAYER` → unavailable, `MWEB` → reload).
+- But a full download stops at exactly 1,000,000 bytes with **403** for both: PO-token enforcement. Googlevideo URLs are also IP-bound (`ip=` param; direct fetch of a server-issued URL → 403).
+
+## Public Invidious / Piped health (2026-11-05, ~90 hosts probed in parallel, checking a byte range past 1.5 MB)
+- Working, CORS `*`: `yt.omada.cafe` (~0.5–3 s per lookup), `yt.chocolatemoo53.com` (~0.7–0.9 s). Both serve full tracks through `/videoplayback` with `local=true`.
+- `yt.chocolatemoo53.com` returns 403 to Cloudflare Workers but works from browsers → the app calls it directly; the Worker uses omada.
+- ytify's other three servers: 403 / 502 / 500. All ~36 Piped API hosts tried: down or erroring.
+
+## LRCLIB
+- `GET https://lrclib.net/api/get?track_name&artist_name&duration` → 200 with `syncedLyrics` (LRC), CORS `*`; `/api/search` for fuzzy matches.

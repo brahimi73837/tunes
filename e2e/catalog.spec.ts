@@ -256,6 +256,8 @@ test('autoplay: when the queue ends, similar songs keep playing', async ({ page 
   })
   await expect(page.getByTestId('now-playing-title')).not.toHaveText(/^shape of you$/i, { timeout: 60_000 })
   await expect.poll(() => page.getByTestId('queue-item').count(), { timeout: 20_000 }).toBeGreaterThan(5)
+  // The new song's clock starts over (the old one ended at ~233 s).
+  await expect.poll(() => peek<number>(page, 'time'), { timeout: 60_000 }).toBeLessThan(120)
   await expectAdvancing(page, ['saavn', 'proxy'], 1, 60_000)
 })
 
