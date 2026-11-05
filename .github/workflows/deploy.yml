@@ -24,6 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The unit tests also cover the Worker, which has its own dependencies (YouTube.js).
+      - run: npm ci --prefix worker
       - run: npm test
       - run: npm run build
         env:
