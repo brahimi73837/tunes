@@ -1,6 +1,8 @@
 import { SOURCES, resolveStreamUrl } from '../sources'
 import { findAlternative } from '../sources/catalog'
+import { forget, prefetch, resolveYouTube, saavnQuality } from '../sources/streams'
 import { attachEngine, usePlayback, usePlayer } from '../store/player'
+import { settings } from '../store/settings'
 import { toast } from '../store/ui'
 import type { Track } from '../types'
 import { YouTubeMedia } from './youtube'
@@ -13,8 +15,16 @@ const MAX_CONSECUTIVE_FAILURES = 5
 type Media = Pick<HTMLMediaElement, 'currentTime' | 'readyState' | 'ended' | 'paused' | 'volume' | 'muted' | 'playbackRate' | 'src' | 'play' | 'pause' | 'load' | 'getAttribute' | 'removeAttribute'> &
   EventTarget & { readonly duration: number; readonly error: { code: number; message?: string } | null }
 
-/** The YouTube player can stand in for a JioSaavn track that won't load. */
+/** A JioSaavn track that won't load can be played from its YouTube copy. */
 const asYouTube = (t: Track): Track => ({ ...t, source: 'youtube', streamUrl: `https://www.youtube.com/watch?v=${t.youtubeId}` })
+
+/**
+ * How we're trying to play the current track, in fallback order:
+ * direct (the source's own URL) → ad-free YouTube audio via an Invidious proxy (twice, on
+ * different servers) → YouTube's own player, if allowed (can show ads) → another upload.
+ */
+type Way = 'direct' | 'invidious' | 'iframe' | 'alternative'
+const MAX_PROXY_TRIES = 2
 
 let ytPlayer: YouTubeMedia | null = null
 /** Shows or hides the YouTube player (it plays hidden by default). */
@@ -49,8 +59,10 @@ export function initEngine() {
   let failedToken = -1
   let pausedAt = 0
   let lastPositionSync = 0
-  /** The load token on which we already tried another copy of the track. */
-  let fallbackToken = -1
+  /** Fallback state for the queue entry being played. */
+  let ladder = { queueId: '', way: 'direct' as Way, proxyTries: 0, exclude: [] as string[], instance: '', iframeTried: false, altTried: false }
+  /** While a stream URL is being looked up, the stall watchdog stands down (lookups have their own timeouts). */
+  let resolving = false
 
   const markProgress = () => (lastProgressAt = Date.now())
   const player = () => usePlayer.getState()
@@ -86,21 +98,62 @@ export function initEngine() {
   }
 
   /** `queueId` stays the id of the queued track when we play a stand-in copy of it. */
-  async function load(t: Track, autoplay: boolean, startAt = 0, queueId = t.id) {
+  async function load(t: Track, autoplay: boolean, startAt = 0, queueId = t.id, way?: Way) {
     const my = ++token
     track = t
     loadedId = queueId
     failedToken = -1
     markProgress()
     lastTime = -1
-    usePlayback.setState({ buffering: autoplay, currentTime: startAt, duration: t.duration || 0, error: null })
+    // A fresh play starts at the top of the ladder; only fallback steps (which pass `way`) keep its state.
+    if (way === undefined || ladder.queueId !== queueId) ladder = { queueId, way: 'direct', proxyTries: 0, exclude: [], instance: '', iframeTried: false, altTried: false }
+    ladder.way = way ?? (t.source === 'youtube' ? 'invidious' : 'direct')
+    usePlayback.setState({ buffering: autoplay, currentTime: startAt, duration: t.duration || 0, error: null, status: null })
     updateMediaSession(t)
     document.title = `${t.title} · ${t.artist} — Tunes`
-    const resolved = await resolveStreamUrl(t)
-    if (my !== token) return
-    url = resolved
+
+    let next: Media = audio
+    if (ladder.way === 'invidious' && !autoplay) {
+      // Queued but not playing yet: look the stream up now (cached for Play), load nothing.
+      media.pause()
+      media.removeAttribute('src')
+      if (media === audio) audio.load()
+      usePlayback.setState({ buffering: false })
+      prefetch(t)
+      return
+    }
+    if (ladder.way === 'invidious') {
+      ladder.proxyTries++
+      resolving = true
+      if (autoplay) usePlayback.setState({ status: ladder.proxyTries > 1 ? 'Trying another server…' : 'Finding the stream…' })
+      try {
+        const r = await resolveYouTube(t, { exclude: ladder.exclude, trySaavn: ladder.proxyTries === 1 })
+        if (my !== token) return
+        url = r.url
+        ladder.instance = r.instance ?? ''
+        // Found the song on JioSaavn: from here on it's a direct file (YouTube stays the fallback).
+        if (r.saavn) ladder.way = 'direct'
+      } catch (e) {
+        if (my !== token) return
+        resolving = false
+        void fail(e instanceof Error ? e.message : 'no stream available')
+        return
+      } finally {
+        if (my === token) resolving = false
+      }
+    } else if (ladder.way === 'iframe') {
+      ladder.iframeTried = true
+      next = yt
+      url = t.streamUrl
+    } else {
+      const resolved = await resolveStreamUrl(t)
+      if (my !== token) return
+      url = t.source === 'saavn' ? saavnQuality(resolved) : resolved
+    }
+    usePlayback.setState({ status: null })
+    markProgress()
     pendingSeek = t.isLive ? 0 : startAt
-    use(t.source === 'youtube' ? yt : audio)
+    use(next)
     media.src = url
     media.load()
     if (autoplay) {
@@ -109,23 +162,30 @@ export function initEngine() {
     }
   }
 
-  /**
-   * Before giving up on a track, try another copy once: the YouTube upload for a JioSaavn
-   * file, or (via the API) a JioSaavn file / a different YouTube upload for a YouTube video.
-   */
+  /** Before giving up on a track, take the next step down the fallback ladder. */
   async function tryFallback(): Promise<boolean> {
     const t = track
-    if (!t || t.isLive || fallbackToken === token || (t.source !== 'saavn' && t.source !== 'youtube')) return false
-    fallbackToken = token
+    if (!t || t.isLive || (t.source !== 'saavn' && t.source !== 'youtube')) return false
     const my = token
-    const at = media.currentTime > 1 ? media.currentTime : 0
+    const at = media.currentTime > 1 ? media.currentTime : pendingSeek
     const queueId = loadedId ?? t.id
-    let alt: Track | null = null
-    if (t.source === 'saavn' && t.youtubeId) alt = asYouTube(t)
-    else alt = await findAlternative(t, t.source === 'saavn' ? 'saavn' : undefined).catch(() => null)
-    if (!alt || my !== token || !player().isPlaying) return false
-    await load({ ...alt, title: t.title, artist: t.artist, artwork: t.artwork ?? alt.artwork }, true, at, queueId)
-    fallbackToken = token
+    const ytTrack = t.source === 'youtube' ? t : t.youtubeId ? asYouTube(t) : null
+    let step: { t: Track; way: Way } | null = null
+
+    if (ytTrack && ladder.way === 'direct' && ladder.proxyTries === 0) step = { t: ytTrack, way: 'invidious' }
+    else if (ytTrack && (ladder.way === 'invidious' || ladder.way === 'direct') && ladder.proxyTries < MAX_PROXY_TRIES) {
+      if (ladder.instance) ladder.exclude.push(ladder.instance)
+      forget(ytTrack.youtubeId!)
+      step = { t: ytTrack, way: 'invidious' }
+    } else if (ytTrack && !ladder.iframeTried && settings().youtubePlayerFallback) step = { t: ytTrack, way: 'iframe' }
+    else if (!ladder.altTried) {
+      ladder.altTried = true
+      const alt = await findAlternative(t, undefined).catch(() => null)
+      if (alt && my === token && alt.id !== t.id) step = { t: alt, way: alt.source === 'youtube' ? 'invidious' : 'direct' }
+      if (step?.way === 'invidious') ladder.proxyTries = 0
+    }
+    if (!step || my !== token || !player().isPlaying) return false
+    await load({ ...step.t, title: t.title, artist: t.artist, artwork: t.artwork ?? step.t.artwork }, true, at, queueId, step.way)
     return true
   }
 
@@ -228,6 +288,9 @@ export function initEngine() {
     usePlayback.setState({ duration: isFinite(d) ? d : track?.duration || 0 })
   })
   on('playing', () => {
+    // Look up the next track's stream now, so the switch is instant.
+    const p = player()
+    prefetch(p.queue[p.index + 1]?.track)
     failures = 0
     markProgress()
     usePlayback.setState({ buffering: false, error: null })
@@ -260,7 +323,7 @@ export function initEngine() {
   // Stall watchdog + sleep timer + resume position.
   setInterval(() => {
     const s = player()
-    if (s.isPlaying && track && !media.ended && Date.now() - lastProgressAt > STALL_MS) {
+    if (s.isPlaying && track && !resolving && !media.ended && Date.now() - lastProgressAt > STALL_MS) {
       void fail(media.readyState === 0 ? 'no response from stream' : 'stream stalled')
     }
     if (s.sleepAt && Date.now() >= s.sleepAt) {

@@ -23,6 +23,9 @@ export async function curatedStations(signal?: AbortSignal): Promise<Track[]> {
 
 export function Home() {
   const top = useAsync('home:charts', (s) => catalog.charts(s))
+  // "Because you listened to…": YouTube Music's radio for the last song you played.
+  const seed = usePlayer((s) => [...s.queue.slice(0, s.index + 1)].reverse().find((q) => q.track.youtubeId && !q.track.isLive)?.track)
+  const mix = useAsync(seed?.youtubeId ? `home:mix:${seed.youtubeId}` : null, (s) => catalog.radio(seed!.youtubeId!, s))
   const trending = useAsync('home:trending', (s) => audius.trending(undefined, s))
   const stations = useAsync('home:stations', curatedStations)
   const playlists = useAsync('home:audius-playlists', (s) => audius.trendingPlaylists(s))
@@ -60,6 +63,12 @@ export function Home() {
           onClick={() => navigate('/radio')}
         />
       </div>
+
+      {seed && !mix.error && (mix.loading || !!mix.data?.length) && (
+        <Section title={`Because you listened to “${seed.title}”`} testId="home-mix" action={mix.data?.length ? <PlayAll tracks={mix.data} /> : undefined}>
+          {mix.data ? <TrackList tracks={mix.data.slice(0, 6)} testId="mix-list" /> : <TrackListSkeleton rows={6} />}
+        </Section>
+      )}
 
       <Section title="Top songs today" testId="home-charts" action={top.data?.length ? <PlayAll tracks={top.data} /> : undefined}>
         {top.error ? <ErrorState message={top.error} onRetry={top.retry} /> : top.data ? <TrackList tracks={top.data.slice(0, 10)} testId="charts-list" /> : <TrackListSkeleton rows={10} />}

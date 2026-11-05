@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { href } from '../lib/router'
 import { formatTime } from '../lib/util'
 import { useIsLiked, useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
@@ -153,16 +154,26 @@ const TrackRow = memo(function TrackRow(p: RowProps) {
         </button>
       </div>
 
-      <button type="button" onClick={p.onPlay} className="flex min-w-0 items-center gap-3 text-left" aria-label={`Play ${t.title} by ${t.artist}`}>
-        <Artwork src={t.artwork} seed={t.id} source={t.source} className="h-10 w-10" iconSize={16} />
+      <div className="flex min-w-0 items-center gap-3">
+        <button type="button" onClick={p.onPlay} className="shrink-0" aria-label={`Play ${t.title} by ${t.artist}`}>
+          <Artwork src={t.artwork} seed={t.id} source={t.source} className="h-10 w-10" iconSize={16} />
+        </button>
         <div className="min-w-0">
-          <div className={`truncate text-sm font-medium ${p.active ? 'text-accent-strong' : 'text-zinc-100'}`}>{t.title}</div>
+          <button type="button" tabIndex={-1} onClick={p.onPlay} className={`block max-w-full truncate text-left text-sm font-medium ${p.active ? 'text-accent-strong' : 'text-zinc-100'}`}>
+            {t.title}
+          </button>
           <div className="flex min-w-0 items-center gap-1.5 truncate text-xs text-zinc-400">
             {t.isLive && <LiveBadge className="sm:hidden" />}
-            <span className="truncate">{t.artist}</span>
+            {t.artistId ? (
+              <a href={href(`/artist/${t.artistId}`)} className="truncate hover:text-white hover:underline" data-testid="artist-link">
+                {t.artist}
+              </a>
+            ) : (
+              <span className="truncate">{t.artist}</span>
+            )}
           </div>
         </div>
-      </button>
+      </div>
 
       <div className="hidden min-w-0 items-center gap-2 text-xs text-zinc-500 sm:flex">
         {p.showSource && <SourceBadge source={t.source} />}

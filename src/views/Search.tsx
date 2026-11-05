@@ -10,10 +10,13 @@ import { TrackList, TrackListSkeleton } from '../components/TrackList'
 import { collectionMenuItems } from '../components/trackActions'
 import { AlbumCard } from './Home'
 import { GenreTiles, Page, Section } from './common'
+import { MusicCardGrid } from './Music'
 
 const TABS = [
   { id: 'all', label: 'All' },
   { id: 'songs', label: 'Songs' },
+  { id: 'artists', label: 'Artists' },
+  { id: 'albums', label: 'Albums' },
   { id: 'videos', label: 'Videos' },
   { id: 'audius', label: 'Audius' },
   { id: 'archive', label: 'Archive' },
@@ -31,6 +34,8 @@ export function SearchView() {
 
   const songs = useAsync(want('songs') && `s:songs:${q}`, (s) => catalog.searchSongs(q, s))
   const videos = useAsync(want('videos') && `s:videos:${q}`, (s) => catalog.searchVideos(q, s))
+  const artists = useAsync(want('artists') && `s:artists:${q}`, (s) => catalog.searchCards(q, 'artists', s))
+  const albumCards = useAsync(want('albums') && `s:albums:${q}`, (s) => catalog.searchCards(q, 'albums', s))
   // Keep showing the previous results while the next ones load: typing feels instant.
   const shownSongs = useLatest(songs.data, rawQ !== '')
   const shownVideos = useLatest(videos.data, rawQ !== '')
@@ -54,12 +59,14 @@ export function SearchView() {
     )
   }
 
-  const loadingAny = pending || songs.loading || videos.loading || tracks.loading || lists.loading || albums.loading || stations.loading
+  const loadingAny = pending || songs.loading || videos.loading || artists.loading || albumCards.loading || tracks.loading || lists.loading || albums.loading || stations.loading
   const nothing =
     !loadingAny && !songs.error && !videos.error && !tracks.error && !albums.error && !stations.error &&
     (tab === 'all' ? !songs.data?.length && !tracks.data?.length && !albums.data?.length && !stations.data?.length && !lists.data?.length
       : tab === 'songs' ? !songs.data?.length
       : tab === 'videos' ? !videos.data?.length
+      : tab === 'artists' ? !artists.data?.length
+      : tab === 'albums' ? !albumCards.data?.length
       : tab === 'audius' ? !tracks.data?.length && !lists.data?.length
       : tab === 'archive' ? !albums.data?.length
       : !stations.data?.length)
@@ -91,6 +98,34 @@ export function SearchView() {
             <TrackListSkeleton rows={tab === 'all' ? 8 : 12} />
           ) : (
             <Muted>No songs found.</Muted>
+          )}
+        </Section>
+      )}
+
+      {(tab === 'all' || tab === 'artists') && (tab === 'artists' || !!artists.data?.length) && (
+        <Section title="Artists" testId="results-artists" action={tab === 'all' && (artists.data?.length ?? 0) > 6 ? <TabLink tab="artists" q={rawQ} /> : undefined}>
+          {artists.error ? (
+            <ErrorState message={artists.error} onRetry={artists.retry} />
+          ) : artists.data?.length ? (
+            <MusicCardGrid cards={tab === 'all' ? artists.data.slice(0, 6) : artists.data} testId="artist-results" />
+          ) : artists.loading || pending ? (
+            <CardGridSkeleton count={6} />
+          ) : (
+            <Muted>No artists found.</Muted>
+          )}
+        </Section>
+      )}
+
+      {(tab === 'all' || tab === 'albums') && (tab === 'albums' || !!albumCards.data?.length) && (
+        <Section title="Albums" testId="results-albums" action={tab === 'all' && (albumCards.data?.length ?? 0) > 6 ? <TabLink tab="albums" q={rawQ} /> : undefined}>
+          {albumCards.error ? (
+            <ErrorState message={albumCards.error} onRetry={albumCards.retry} />
+          ) : albumCards.data?.length ? (
+            <MusicCardGrid cards={tab === 'all' ? albumCards.data.slice(0, 6) : albumCards.data} testId="album-results" />
+          ) : albumCards.loading || pending ? (
+            <CardGridSkeleton count={6} />
+          ) : (
+            <Muted>No albums found.</Muted>
           )}
         </Section>
       )}

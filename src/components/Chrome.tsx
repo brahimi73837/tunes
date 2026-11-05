@@ -6,7 +6,7 @@ import { LIKED_ID, useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
 import { useUI } from '../store/ui'
 import type { Track } from '../types'
-import { CloseIcon, FocusIcon, HeartFillIcon, HomeIcon, KeyboardIcon, LibraryIcon, MusicIcon, PlusIcon, RadioIcon, SearchIcon } from './Icons'
+import { CloseIcon, FocusIcon, HeartFillIcon, HomeIcon, KeyboardIcon, LibraryIcon, MusicIcon, PlusIcon, RadioIcon, SearchIcon, SettingsIcon } from './Icons'
 import { Equalizer, TRACK_MIME } from './TrackList'
 import { addToPlaylist, createPlaylistWith } from './trackActions'
 import { startFocusMode, useFocusModeState } from '../views/focus'
@@ -285,9 +285,12 @@ export function TopBar() {
         >
           <FocusIcon size={16} /> {focusMode ? 'Tuning in…' : 'Focus mode'}
         </button>
-        <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" className="icon-btn h-9 w-9 bg-white/[0.06] hover:bg-white/10" onClick={() => useUI.getState().setHelp(true)}>
+        <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" className="icon-btn hidden h-9 w-9 bg-white/[0.06] hover:bg-white/10 sm:inline-flex" onClick={() => useUI.getState().setHelp(true)}>
           <KeyboardIcon size={18} />
         </button>
+        <a href={href('/settings')} aria-label="Settings" title="Settings" data-testid="settings-link" className="icon-btn h-9 w-9 bg-white/[0.06] hover:bg-white/10">
+          <SettingsIcon size={18} />
+        </a>
       </div>
     </header>
   )

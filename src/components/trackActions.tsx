@@ -1,3 +1,4 @@
+import { hasRadio, startRadio } from '../lib/radio'
 import { navigate } from '../lib/router'
 import { SOURCES } from '../sources'
 import { LIKED_ID, useLibrary } from '../store/library'
@@ -5,7 +6,7 @@ import { usePlayer } from '../store/player'
 import { toast } from '../store/ui'
 import type { Track } from '../types'
 import { askText } from './Dialog'
-import { ExternalIcon, HeartFillIcon, HeartIcon, ListPlusIcon, NextIcon, PlusIcon, QueueIcon } from './Icons'
+import { DiscIcon, ExternalIcon, HeartFillIcon, HeartIcon, ListPlusIcon, NextIcon, PlusIcon, QueueIcon, RadioIcon, UserIcon } from './Icons'
 import type { MenuItem } from './Menu'
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
@@ -46,6 +47,9 @@ export function trackMenuItems(track: Track, extra: MenuItem[] = []): MenuItem[]
       icon: liked ? <HeartFillIcon size={16} className="text-accent-2" /> : <HeartIcon size={16} />,
       onClick: () => useLibrary.getState().toggleLike(track),
     },
+    ...(hasRadio(track) ? [{ label: 'Start radio', icon: <RadioIcon size={16} />, onClick: () => void startRadio(track) }] : []),
+    ...(track.artistId ? [{ label: 'Go to artist', icon: <UserIcon size={16} />, onClick: () => navigate(`/artist/${track.artistId}`) }] : []),
+    ...(track.albumId ? [{ label: 'Go to album', icon: <DiscIcon size={16} />, onClick: () => navigate(`/yt-album/${track.albumId}`) }] : []),
     ...(track.pageUrl ? [{ label: `Open on ${SOURCES[track.source]?.pageLabel ?? 'source site'}`, icon: <ExternalIcon size={16} />, onClick: () => window.open(track.pageUrl, '_blank', 'noopener') }] : []),
     ...(extra.length ? [{ label: '', separator: true }, ...extra] : []),
   ]

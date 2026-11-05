@@ -52,8 +52,10 @@ export function parseSongRow(it: Json): CatalogTrack | null {
   if (!videoId || !cols[0]) return null
   const details: Json[] = cols[1] ?? []
   const pageType = (r: Json) => r.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType
-  const artists = details.filter((r) => pageType(r) === 'MUSIC_PAGE_TYPE_ARTIST').map((r) => r.text)
-  const album = details.find((r) => pageType(r) === 'MUSIC_PAGE_TYPE_ALBUM')?.text
+  const artistRuns = details.filter((r) => pageType(r) === 'MUSIC_PAGE_TYPE_ARTIST')
+  const artists = artistRuns.map((r) => r.text)
+  const albumRun = details.find((r) => pageType(r) === 'MUSIC_PAGE_TYPE_ALBUM')
+  const album = albumRun?.text
   // Rows without artist links still list "Artist • Album • 3:22" as plain runs.
   const parts = runsText(details).split(' • ').map((s) => s.trim())
   // Search rows end with "• 3:22"; playlist rows keep the length in a fixed column instead.
@@ -73,6 +75,8 @@ export function parseSongRow(it: Json): CatalogTrack | null {
     pageUrl: `https://music.youtube.com/watch?v=${videoId}`,
     youtubeId: videoId,
     explicit,
+    artistId: artistRuns[0]?.navigationEndpoint?.browseEndpoint?.browseId,
+    albumId: albumRun?.navigationEndpoint?.browseEndpoint?.browseId,
   }
 }
 

@@ -16,6 +16,9 @@ export interface CatalogTrack {
   /** YouTube video to fall back to (or, for youtube tracks, the one to play). */
   youtubeId?: string
   explicit?: boolean
+  /** YouTube Music browse ids, for linking to the artist and album pages. */
+  artistId?: string
+  albumId?: string
 }
 
 export interface Env {
@@ -23,4 +26,6 @@ export interface Env {
   SAAVN_GEO_IP?: string
   /** Comma-separated list of origins allowed to call the API ("*" for any). */
   ALLOWED_ORIGINS?: string
+  /** Comma-separated Invidious hosts that proxy audio, tried in parallel (overrides the built-in list). */
+  INVIDIOUS_INSTANCES?: string
 }
